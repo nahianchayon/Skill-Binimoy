@@ -1,0 +1,13 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "admin@demo.com",
+      "password": "$2b$10$38Cw8bkX4j2DGNLJP.8ho.KMYAHeBYj1FrxqV0Tna0DGPqbBkwXQy",
+      "name": "Admin Demo"
+    }
+  ],
+  "mentors": [],
+  "nextMentorId": 4,
+  "nextUserId": 2
+}
