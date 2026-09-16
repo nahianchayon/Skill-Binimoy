@@ -269,7 +269,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             await setDoc(
               doc(db, "users", user.uid),
-              { premium: true, tutorVerified: true, updatedAt: serverTimestamp() },
+              {
+                uid: user.uid,
+                email: user.email,
+                displayName: user.displayName || profile?.displayName || "Member",
+                photoURL: user.photoURL || profile?.photoURL || null,
+                premium: true,
+                tutorVerified: true,
+                updatedAt: serverTimestamp(),
+              },
               { merge: true },
             );
           } catch (err) {
@@ -291,7 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             await setDoc(
               doc(db, "users", user.uid),
-              { ...updates, updatedAt: serverTimestamp() },
+              { uid: user.uid, ...updates, updatedAt: serverTimestamp() },
               { merge: true },
             );
           } catch (err) {

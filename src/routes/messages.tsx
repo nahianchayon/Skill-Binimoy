@@ -169,29 +169,46 @@ function MessagesPage() {
     if (!user || !selected || !db || !text.trim()) return;
     const trimmed = text.trim();
     const partnerId = getPartnerInfo(selected, user.uid).partnerId;
+    const convId = selected.id;
+
+    // 1. Immediately clear the input box so typed text never remains
+    setText("");
+
+    // 2. Optimistic local message insertion for instantaneous UX
+    const tempId = `temp_${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      senderId: user.uid,
+      text: trimmed,
+      createdAt: new Date(),
+      readBy: [user.uid],
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
 
     try {
-      await addDoc(collection(db, "conversations", selected.id, "messages"), {
+      await addDoc(collection(db, "conversations", convId, "messages"), {
         senderId: user.uid,
         text: trimmed,
         createdAt: serverTimestamp(),
         readBy: [user.uid],
       });
-      await updateDoc(doc(db, "conversations", selected.id), {
+      await updateDoc(doc(db, "conversations", convId), {
         lastMessage: trimmed,
         lastMessageAt: new Date().toISOString(),
         unreadBy: partnerId ? arrayUnion(partnerId) : [],
         updatedAt: serverTimestamp(),
       });
-      setText("");
     } catch (error) {
+      // Revert optimistic message and restore text on failure
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setText(trimmed);
       setNotice(error instanceof Error ? error.message : "Could not send message.");
     }
   }
 
   async function startVideoCall() {
     if (!user || !selected || !db) return;
-    const callId = selected.id;
+    const callId = `call_${selected.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_${Date.now()}`;
     const partnerId = getPartnerInfo(selected, user.uid).partnerId;
 
     try {
@@ -209,7 +226,7 @@ function MessagesPage() {
         unreadBy: partnerId ? arrayUnion(partnerId) : [],
         updatedAt: serverTimestamp(),
       });
-      // Navigate to video call room with caller parameter
+      // Navigate to fresh video call room with caller parameter
       window.location.assign(`/video-call/${callId}?caller=true`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not initiate call.");

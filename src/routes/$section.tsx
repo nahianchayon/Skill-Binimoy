@@ -239,7 +239,7 @@ function SectionPage() {
   const [paying, setPaying] = useState(false);
 
   useEffect(() => {
-    if (!user || ["settings", "admin"].includes(section)) return;
+    if (!user || ["settings", "admin", "premium", "faq"].includes(section)) return;
 
     if (section === "requests") {
       let sent: Row[] = [];
@@ -393,52 +393,84 @@ function SectionPage() {
     }
   }
 
-  // Toggle Like on a Post
+  // Toggle Like on a Post with optimistic update
   async function handleToggleLike(post: Row) {
     if (!user) return;
-    try {
-      const currentLikes = Array.isArray(post.likes) ? post.likes : [];
-      const hasLiked = currentLikes.includes(user.uid);
-      const nextLikes = hasLiked
-        ? currentLikes.filter((uid) => uid !== user.uid)
-        : [...currentLikes, user.uid];
+    const currentLikes = Array.isArray(post.likes) ? post.likes : [];
+    const hasLiked = currentLikes.includes(user.uid);
+    const nextLikes = hasLiked
+      ? currentLikes.filter((uid) => uid !== user.uid)
+      : [...currentLikes, user.uid];
 
+    // Optimistic local update
+    setRows((prev) =>
+      prev.map((r) => (r.id === post.id ? { ...r, likes: nextLikes } : r)),
+    );
+
+    try {
       await updateRecord("posts", post.id, { likes: nextLikes });
     } catch (error) {
       console.warn("Could not update like:", error);
+      // Revert if error
+      setRows((prev) =>
+        prev.map((r) => (r.id === post.id ? { ...r, likes: currentLikes } : r)),
+      );
+      setNotice(error instanceof Error ? error.message : "Failed to update like reaction.");
     }
   }
 
-  // Add Comment / Solution to a Question
+  // Add Comment / Solution to a Question with optimistic update
   async function handleAddComment(postId: string) {
     if (!user) return;
     const text = commentInputs[postId]?.trim();
     if (!text) return;
 
+    const post = rows.find((r) => r.id === postId);
+    const currentComments = Array.isArray(post?.comments) ? post.comments : [];
+    const newComment: CommentItem = {
+      id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      authorId: user.uid,
+      authorName: profile?.displayName || user.displayName || "Helper",
+      authorPhoto: profile?.photoURL || user.photoURL || null,
+      text,
+      createdAt: new Date().toISOString(),
+      premium: Boolean(profile?.premium),
+      tutorVerified: Boolean(profile?.tutorVerified),
+    };
+    const nextComments = [...currentComments, newComment];
+
+    // Optimistic local update & instant input clear
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === postId
+          ? { ...r, comments: nextComments, replies: nextComments.length }
+          : r,
+      ),
+    );
+    setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
+    setExpandedComments((prev) => ({ ...prev, [postId]: true }));
+
     try {
-      const post = rows.find((r) => r.id === postId);
-      const currentComments = Array.isArray(post?.comments) ? post.comments : [];
-      const newComment: CommentItem = {
-        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        authorId: user.uid,
-        authorName: profile?.displayName || user.displayName || "Helper",
-        authorPhoto: profile?.photoURL || user.photoURL || null,
-        text,
-        createdAt: new Date().toISOString(),
-        premium: Boolean(profile?.premium),
-        tutorVerified: Boolean(profile?.tutorVerified),
-      };
-
       await updateRecord("posts", postId, {
-        comments: [...currentComments, newComment],
-        replies: currentComments.length + 1,
+        comments: nextComments,
+        replies: nextComments.length,
       });
-
-      setCommentInputs((prev) => ({ ...prev, [postId]: "" }));
-      setExpandedComments((prev) => ({ ...prev, [postId]: true }));
-      setNotice("Solution / comment submitted successfully.");
+      setNotice(
+        section === "solutions"
+          ? "Solution submitted successfully."
+          : "Comment posted successfully.",
+      );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not post comment.");
+      // Revert if error
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === postId
+            ? { ...r, comments: currentComments, replies: currentComments.length }
+            : r,
+        ),
+      );
+      setCommentInputs((prev) => ({ ...prev, [postId]: text }));
+      setNotice(error instanceof Error ? error.message : "Could not post solution/comment.");
     }
   }
 

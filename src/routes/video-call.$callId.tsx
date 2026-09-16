@@ -202,7 +202,8 @@ function VideoCallPage() {
 
     const room = doc(db, "calls", callId);
     const isCallerParam = new URLSearchParams(window.location.search).get("caller") === "true";
-    const currentSessionId = `${isCallerParam ? "caller" : "peer"}_${Date.now()}`;
+    const callStartTime = Date.now();
+    const currentSessionId = `${isCallerParam ? "caller" : "peer"}_${callStartTime}`;
 
     const connection = new RTCPeerConnection({
       iceServers: [
@@ -216,11 +217,22 @@ function VideoCallPage() {
     // Add local tracks to peer connection
     stream.getTracks().forEach((track) => connection.addTrack(track, stream));
 
-    // Handle remote tracks
+    // Handle remote tracks safely
     connection.ontrack = (event) => {
-      const remote = event.streams[0];
-      if (remote && remoteVideo.current) {
-        remoteVideo.current.srcObject = remote;
+      let remote = event.streams[0];
+      if (!remote) {
+        remote = new MediaStream();
+        remote.addTrack(event.track);
+      }
+      if (remoteVideo.current) {
+        if (!remoteVideo.current.srcObject) {
+          remoteVideo.current.srcObject = remote;
+        } else {
+          const currentStream = remoteVideo.current.srcObject as MediaStream;
+          if (!currentStream.getTracks().some((t) => t.id === event.track.id)) {
+            currentStream.addTrack(event.track);
+          }
+        }
         remoteVideo.current.playsInline = true;
         remoteVideo.current.play().catch((e) => console.warn("Remote play error:", e));
         setHasRemoteVideo(true);
@@ -283,28 +295,84 @@ function VideoCallPage() {
       }
     };
 
-    // Listen for room offer / answer changes
+    // Track initialization
     let offerCreated = false;
+    let answerCreated = false;
+
+    // Helper: Caller creates and publishes fresh offer
+    const initiateAsCaller = async () => {
+      if (offerCreated) return;
+      offerCreated = true;
+      try {
+        const localOffer = await connection.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await connection.setLocalDescription(localOffer);
+        await setDoc(room, {
+          callerId: user.uid,
+          callerName: profile?.displayName || user.displayName || "Partner",
+          offer: { type: localOffer.type, sdp: localOffer.sdp },
+          answer: null,
+          createdAt: Date.now(),
+          sessionId: currentSessionId,
+        });
+        setStatus("Waiting for partner to join...");
+      } catch (e) {
+        console.warn("Create offer failed:", e);
+        setStatus("Failed to create call offer.");
+      }
+    };
+
+    // If this peer is explicitly the caller, initiate immediately
+    if (isCallerParam) {
+      void initiateAsCaller();
+    }
+
+    // Listen for room offer / answer changes
     const unsubRoom = onSnapshot(room, async (snapshot) => {
-      const data = snapshot.data() || {};
+      const data = snapshot.data();
+      if (!data) {
+        if (!isCallerParam && !offerCreated) {
+          void initiateAsCaller();
+        }
+        return;
+      }
+
       const answer = data["answer"] as RTCSessionDescriptionInit | undefined;
       const offer = data["offer"] as RTCSessionDescriptionInit | undefined;
       const roomCallerId = data["callerId"] as string | undefined;
+      const offerCreatedAt = typeof data["createdAt"] === "number" ? data["createdAt"] : 0;
+      const isRecentOffer = Boolean(offer && Date.now() - offerCreatedAt < 15 * 60 * 1000);
 
       // Caller receives answer from joiner
-      if (answer && !connection.currentRemoteDescription && (isCallerParam || roomCallerId === user.uid)) {
+      if (
+        answer &&
+        !connection.currentRemoteDescription &&
+        connection.signalingState === "have-local-offer" &&
+        (isCallerParam || roomCallerId === user.uid)
+      ) {
         try {
           await connection.setRemoteDescription(new RTCSessionDescription(answer));
           remoteDescriptionSet = true;
           await flushCandidates();
+          setStatus("Connected with partner!");
         } catch (e) {
           console.warn("Caller setRemoteDescription failed:", e);
         }
       }
 
       // Joiner receives offer from caller
-      if (offer && !connection.currentRemoteDescription && roomCallerId !== user.uid) {
+      if (
+        isRecentOffer &&
+        offer &&
+        !connection.currentRemoteDescription &&
+        connection.signalingState === "stable" &&
+        roomCallerId !== user.uid &&
+        !answerCreated
+      ) {
         try {
+          answerCreated = true;
           await connection.setRemoteDescription(new RTCSessionDescription(offer));
           remoteDescriptionSet = true;
           await flushCandidates();
@@ -319,42 +387,29 @@ function VideoCallPage() {
             },
             { merge: true },
           );
+          setStatus("Connected with partner!");
         } catch (e) {
           console.warn("Joiner createAnswer failed:", e);
         }
       }
 
-      // If room has no active offer, this peer becomes the caller and initiates
-      if (!offer && !offerCreated && (isCallerParam || !roomCallerId || roomCallerId === user.uid)) {
-        offerCreated = true;
-        try {
-          const localOffer = await connection.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: true,
-          });
-          await connection.setLocalDescription(localOffer);
-          await setDoc(room, {
-            callerId: user.uid,
-            callerName: profile?.displayName || user.displayName || "Partner",
-            offer: { type: localOffer.type, sdp: localOffer.sdp },
-            answer: null,
-            createdAt: Date.now(),
-            sessionId: currentSessionId,
-          });
-          setStatus("Waiting for partner to join...");
-        } catch (e) {
-          console.warn("Create offer failed:", e);
-          setStatus("Failed to create call offer.");
-        }
+      // If room has no recent offer and peer is not caller, initiate as caller
+      if (!isRecentOffer && !offerCreated && !isCallerParam) {
+        void initiateAsCaller();
       }
     });
 
-    // Listen for ICE candidates
+    // Listen for ICE candidates (only from current session)
     const unsubCandidates = onSnapshot(collection(room, "candidates"), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added") {
           const docData = change.doc.data();
-          if (user && docData["sender"] !== user.uid) {
+          const candidateCreatedAt = typeof docData["createdAt"] === "number" ? docData["createdAt"] : 0;
+          if (
+            user &&
+            docData["sender"] !== user.uid &&
+            candidateCreatedAt >= callStartTime - 5000
+          ) {
             const candidateInit = docData["candidate"] as RTCIceCandidateInit | undefined;
             if (candidateInit) {
               void processCandidate(candidateInit);
