@@ -5,12 +5,22 @@ import { getStorage, connectStorageEmulator } from "firebase/storage";
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 
 const firebaseConfig = {
-  apiKey: import.meta.env["VITE_FIREBASE_API_KEY"],
-  authDomain: import.meta.env["VITE_FIREBASE_AUTH_DOMAIN"],
-  projectId: import.meta.env["VITE_FIREBASE_PROJECT_ID"],
-  storageBucket: import.meta.env["VITE_FIREBASE_STORAGE_BUCKET"],
-  messagingSenderId: import.meta.env["VITE_FIREBASE_MESSAGING_SENDER_ID"],
-  appId: import.meta.env["VITE_FIREBASE_APP_ID"],
+  apiKey:
+    import.meta.env["VITE_FIREBASE_API_KEY"] ||
+    "AIzaSyCH40uAstln0Uq4QO8uKp8jx89ozSoCCO4",
+  authDomain:
+    import.meta.env["VITE_FIREBASE_AUTH_DOMAIN"] ||
+    "skillbinimoywebsite.firebaseapp.com",
+  projectId:
+    import.meta.env["VITE_FIREBASE_PROJECT_ID"] || "skillbinimoywebsite",
+  storageBucket:
+    import.meta.env["VITE_FIREBASE_STORAGE_BUCKET"] ||
+    "skillbinimoywebsite.firebasestorage.app",
+  messagingSenderId:
+    import.meta.env["VITE_FIREBASE_MESSAGING_SENDER_ID"] || "698329108361",
+  appId:
+    import.meta.env["VITE_FIREBASE_APP_ID"] ||
+    "1:698329108361:web:09ba5025ffbc210ac8db58",
 };
 
 export const firebaseEnabled = Object.values(firebaseConfig).every(Boolean);
