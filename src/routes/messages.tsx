@@ -102,12 +102,28 @@ function MessagesPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [notice, setNotice] = useState("");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const isInitialLoadRef = useRef(true);
 
-  // Auto-scroll on new messages
+  // Auto-scroll ONLY inside the chat messages container (never scrolls the browser window)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = chatMessagesRef.current;
+    if (!el) return;
+
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 180;
+
+    if (isInitialLoadRef.current) {
+      el.scrollTop = el.scrollHeight;
+      isInitialLoadRef.current = false;
+    } else if (isNearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
+
+  // Reset initial load flag when user selects a conversation
+  useEffect(() => {
+    isInitialLoadRef.current = true;
+  }, [selected?.id]);
 
   // Real-time conversations listener
   useEffect(() => {
@@ -206,15 +222,15 @@ function MessagesPage() {
     }
   }
 
-  async function startVideoCall() {
-    if (!user || !selected || !db) return;
-    const callId = `call_${selected.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_${Date.now()}`;
-    const partnerId = getPartnerInfo(selected, user.uid).partnerId;
+  async function startVideoCall(targetConv = selected) {
+    if (!user || !targetConv || !db) return;
+    const callId = `call_${targetConv.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_${Date.now()}`;
+    const partnerId = getPartnerInfo(targetConv, user.uid).partnerId;
 
     console.log("[VIDEO-CALL] Call start:", { callId, partnerId, callerId: user.uid });
 
     try {
-      await addDoc(collection(db, "conversations", selected.id, "messages"), {
+      await addDoc(collection(db, "conversations", targetConv.id, "messages"), {
         senderId: user.uid,
         text: "🎥 Started a live video call session. Click below to join!",
         isCallInvite: true,
@@ -222,7 +238,7 @@ function MessagesPage() {
         createdAt: serverTimestamp(),
         readBy: [user.uid],
       });
-      await updateDoc(doc(db, "conversations", selected.id), {
+      await updateDoc(doc(db, "conversations", targetConv.id), {
         lastMessage: "🎥 Started a live video call session",
         lastMessageAt: new Date().toISOString(),
         unreadBy: partnerId ? arrayUnion(partnerId) : [],
@@ -237,7 +253,7 @@ function MessagesPage() {
           callerId: user.uid,
           callerName: profile?.displayName || user.displayName || user.email?.split("@")[0] || "Skill Partner",
           callerPhoto: profile?.photoURL || user.photoURL || "",
-          conversationId: selected.id,
+          conversationId: targetConv.id,
           status: "UNREAD",
           createdAt: serverTimestamp(),
           title: "Incoming Live Video Call",
@@ -259,9 +275,9 @@ function MessagesPage() {
   return (
     <ProtectedView>
       <WorkspaceShell title="Messages" eyebrow="Your conversations">
-        <div className="messages-layout">
-          <aside className="conversation-list">
-            <div className="flex items-center justify-between">
+        <div className="messages-layout h-[calc(100dvh-13.5rem)] min-h-[540px] max-h-[780px]">
+          <aside className="conversation-list overflow-y-auto h-full">
+            <div className="flex items-center justify-between pb-3">
               <h2 className="text-lg font-black">Conversations</h2>
               <MessageCircle className="size-5 text-primary" />
             </div>
@@ -270,65 +286,89 @@ function MessagesPage() {
                 Accept an exchange request to start chatting.
               </div>
             ) : (
-              conversations.map((conversation) => {
-                const partner = getPartnerInfo(conversation, user?.uid);
-                const hasUnread =
-                  user && conversation.unreadBy && conversation.unreadBy.includes(user.uid);
+              <div className="space-y-1">
+                {conversations.map((conversation) => {
+                  const partner = getPartnerInfo(conversation, user?.uid);
+                  const hasUnread =
+                    user && conversation.unreadBy && conversation.unreadBy.includes(user.uid);
+                  const isSelected = selected?.id === conversation.id;
 
-                return (
-                  <button
-                    key={conversation.id}
-                    onClick={() => setSelected(conversation)}
-                    className={`conversation-item relative ${
-                      selected?.id === conversation.id ? "conversation-item-active" : ""
-                    }`}
-                  >
-                    {partner.photoURL ? (
-                      <img
-                        src={partner.photoURL}
-                        alt={partner.name}
-                        className="size-10 rounded-full object-cover shrink-0"
-                      />
-                    ) : (
-                      <span className="conversation-avatar shrink-0">{partner.initials}</span>
-                    )}
-                    <span className="min-w-0 flex-1 text-left">
-                      <strong className="flex items-center justify-between">
-                        <span className="truncate">{partner.name}</span>
-                        {hasUnread && (
-                          <span className="size-2.5 rounded-full bg-primary shrink-0" />
-                        )}
-                      </strong>
-                      <small
-                        className={`truncate block ${hasUnread ? "font-bold text-slate-900" : ""}`}
+                  return (
+                    <div
+                      key={conversation.id}
+                      className={`group flex items-center justify-between rounded-2xl transition ${
+                        isSelected
+                          ? "bg-primary-soft/80 dark:bg-primary/15"
+                          : "hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSelected(conversation)}
+                        className="conversation-item relative flex-1 min-w-0"
                       >
-                        {typeof conversation.lastMessage === "string"
-                          ? conversation.lastMessage
-                          : "Conversation started"}
-                      </small>
-                    </span>
-                  </button>
-                );
-              })
+                        {partner.photoURL ? (
+                          <img
+                            src={partner.photoURL}
+                            alt={partner.name}
+                            className="size-10 rounded-full object-cover shrink-0"
+                          />
+                        ) : (
+                          <span className="conversation-avatar shrink-0">{partner.initials}</span>
+                        )}
+                        <span className="min-w-0 flex-1 text-left">
+                          <strong className="flex items-center justify-between">
+                            <span className="truncate">{partner.name}</span>
+                            {hasUnread && (
+                              <span className="size-2.5 rounded-full bg-primary shrink-0" />
+                            )}
+                          </strong>
+                          <small
+                            className={`truncate block ${hasUnread ? "font-bold text-slate-900 dark:text-white" : ""}`}
+                          >
+                            {typeof conversation.lastMessage === "string"
+                              ? conversation.lastMessage
+                              : "Conversation started"}
+                          </small>
+                        </span>
+                      </button>
+
+                      {/* Quick Video Call action button in sidebar */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelected(conversation);
+                          void startVideoCall(conversation);
+                        }}
+                        className="mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-80 sm:opacity-0 group-hover:opacity-100 hover:bg-primary hover:text-white transition cursor-pointer"
+                        title={`Start Video Call with ${partner.name}`}
+                      >
+                        <Video className="size-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </aside>
 
-          <section className="chat-panel flex flex-col h-[700px]">
+          <section className="chat-panel flex flex-col h-full overflow-hidden">
             {selected && selectedPartner ? (
               <>
-                <div className="chat-header flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-3">
+                <div className="chat-header sticky top-0 z-20 flex items-center justify-between shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
                     {selectedPartner.photoURL ? (
                       <img
                         src={selectedPartner.photoURL}
                         alt={selectedPartner.name}
-                        className="size-10 rounded-full object-cover"
+                        className="size-10 rounded-full object-cover shrink-0"
                       />
                     ) : (
-                      <span className="conversation-avatar">{selectedPartner.initials}</span>
+                      <span className="conversation-avatar shrink-0">{selectedPartner.initials}</span>
                     )}
-                    <div>
-                      <strong>{selectedPartner.name}</strong>
+                    <div className="min-w-0">
+                      <strong className="truncate block">{selectedPartner.name}</strong>
                       <small className="flex items-center gap-1.5 text-emerald-600 font-semibold">
                         <span className="inline-block size-2 rounded-full bg-emerald-500" />
                         Live skill partner
@@ -337,14 +377,16 @@ function MessagesPage() {
                   </div>
                   <button
                     onClick={() => void startVideoCall()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-primary-hover active:scale-95 transition"
-                    title="Start Live Video Call"
+                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary-hover active:scale-95 px-4 py-2.5 text-xs font-black text-white shadow-sm transition cursor-pointer shrink-0"
+                    title={`Start Live Video Call with ${selectedPartner.name}`}
                   >
-                    <Video className="size-4" /> Start Video Call
+                    <Video className="size-4" />
+                    <span className="hidden sm:inline">Start Video Call</span>
+                    <span className="sm:hidden">Call</span>
                   </button>
                 </div>
 
-                <div className="chat-messages flex-1 overflow-y-auto p-4 space-y-3">
+                <div ref={chatMessagesRef} className="chat-messages flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.length === 0 ? (
                     <p className="m-auto text-sm text-slate-500 text-center py-20">
                       Say hello and plan your exchange.
@@ -435,22 +477,34 @@ function MessagesPage() {
                       );
                     })
                   )}
-                  <div ref={messagesEndRef} />
                 </div>
 
-                <form onSubmit={send} className="chat-compose shrink-0">
+                <form onSubmit={send} className="chat-compose shrink-0 flex items-center gap-2.5 p-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                  <button
+                    type="button"
+                    onClick={() => void startVideoCall()}
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary hover:text-white transition active:scale-95 cursor-pointer shadow-xs"
+                    title={`Start Live Video Call with ${selectedPartner.name}`}
+                  >
+                    <Video className="size-5" />
+                  </button>
                   <input
                     value={text}
                     onChange={(event) => setText(event.target.value)}
-                    placeholder="Write a message..."
+                    placeholder={`Write a message to ${selectedPartner.name}...`}
+                    className="flex-1 min-w-0 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 px-4 py-2.5 text-sm dark:text-white outline-none focus:border-primary focus:bg-white dark:focus:bg-slate-900 transition"
                   />
-                  <button aria-label="Send message">
+                  <button
+                    aria-label="Send message"
+                    type="submit"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white hover:bg-primary-hover active:scale-95 transition cursor-pointer shadow-xs"
+                  >
                     <Send className="size-4" />
                   </button>
                 </form>
               </>
             ) : (
-              <div className="m-auto text-center">
+              <div className="m-auto text-center p-8">
                 <MessageCircle className="mx-auto size-10 text-primary/30" />
                 <h2 className="mt-3 font-black">Your conversations live here</h2>
                 <p className="mt-2 text-sm text-slate-500">
