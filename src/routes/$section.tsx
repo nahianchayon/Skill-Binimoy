@@ -239,6 +239,7 @@ function SectionPage() {
   const [paying, setPaying] = useState(false);
 
   useEffect(() => {
+    if (!user || ["settings", "admin"].includes(section)) return;
     if (!user || ["settings", "admin", "premium", "faq"].includes(section)) return;
 
     if (section === "requests") {
@@ -393,6 +394,7 @@ function SectionPage() {
     }
   }
 
+  // Toggle Like on a Post
   // Toggle Like on a Post with optimistic update
   async function handleToggleLike(post: Row) {
     if (!user) return;
@@ -408,6 +410,12 @@ function SectionPage() {
     );
 
     try {
+      const currentLikes = Array.isArray(post.likes) ? post.likes : [];
+      const hasLiked = currentLikes.includes(user.uid);
+      const nextLikes = hasLiked
+        ? currentLikes.filter((uid) => uid !== user.uid)
+        : [...currentLikes, user.uid];
+
       await updateRecord("posts", post.id, { likes: nextLikes });
     } catch (error) {
       console.warn("Could not update like:", error);
@@ -455,6 +463,7 @@ function SectionPage() {
         comments: nextComments,
         replies: nextComments.length,
       });
+
       setNotice(
         section === "solutions"
           ? "Solution submitted successfully."
@@ -875,21 +884,21 @@ function SectionPage() {
           <>
             {/* Top Toolbar */}
             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3">
-                <div className="grid size-11 place-items-center rounded-xl bg-primary-soft text-primary">
-                  <Icon className="size-5" />
+              <div className="flex items-center gap-3.5">
+                <div className="grid size-12 place-items-center rounded-2xl bg-primary-soft text-primary shadow-2xs">
+                  <Icon className="size-6" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-slate-950">{config.title}</h2>
-                  <p className="text-xs text-muted-foreground">{rows.length} live records</p>
+                  <h2 className="text-2xl font-black text-slate-950 dark:text-white tracking-tight">{config.title}</h2>
+                  <p className="text-xs font-semibold text-muted-foreground">{rows.length} live records</p>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2.5">
                 {section === "notifications" && rows.some((r) => r.status === "UNREAD" || r.status === "PENDING") && (
                   <button
                     onClick={() => void markAllNotificationsRead()}
-                    className="h-10 rounded-xl border border-border bg-card px-3 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                    className="h-10 rounded-xl border border-border bg-card px-4 text-xs font-bold text-foreground hover:bg-slate-100/70 dark:hover:bg-slate-800/60 shadow-2xs transition"
                   >
                     Mark all read
                   </button>
@@ -901,7 +910,7 @@ function SectionPage() {
                       setPostFormType("QUESTION");
                       setCreatePostOpen(true);
                     }}
-                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-xs font-extrabold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition cursor-pointer"
                   >
                     <Plus className="size-4" /> Ask a Question
                   </button>
@@ -910,14 +919,14 @@ function SectionPage() {
                 {section === "posts" && (
                   <button
                     onClick={() => setCreatePostOpen(true)}
-                    className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition"
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-xs font-extrabold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition cursor-pointer"
                   >
                     <Plus className="size-4" /> Create Post / Ask
                   </button>
                 )}
 
                 <input
-                  className="h-10 rounded-xl border border-input bg-card px-3 text-xs outline-none sm:w-64"
+                  className="h-10 rounded-xl border border-input bg-card px-3.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground placeholder:text-muted-foreground shadow-2xs transition sm:w-68"
                   placeholder="Search records..."
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -1045,25 +1054,25 @@ function SectionPage() {
                           )}
 
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-950 group-hover:text-primary transition inline-flex items-center gap-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-extrabold text-slate-900 dark:text-white group-hover:text-primary transition inline-flex items-center gap-1.5">
                                 {row.authorName || row.senderName || "Community Member"}
                                 {(row.premium || row.tutorVerified || (authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
                                   <span title="Verified Member" className="text-primary shrink-0">
-                                    <BadgeCheck className="size-3.5" />
+                                    <BadgeCheck className="size-4" />
                                   </span>
                                 )}
                               </span>
-                              <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[10px] font-black uppercase text-muted-foreground">
+                              <span className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
                                 {isQuickSolution ? "Quick Solution Question" : row.category || row.type || "Update"}
                               </span>
                             </div>
 
-                            <h3 className="mt-1 text-lg font-black text-slate-950">
+                            <h3 className="mt-1.5 text-xl font-black text-slate-900 dark:text-white tracking-tight">
                               {row.title || row.name || row.subject || "Community Update"}
                             </h3>
 
-                            <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                            <p className="mt-2 text-sm leading-relaxed text-slate-700 dark:text-slate-200 font-normal">
                               {row.description || row.body || row.message || ""}
                             </p>
                           </div>
@@ -1170,19 +1179,19 @@ function SectionPage() {
 
                       {/* REACT (LIKE) & COMMENT SECTION: QUICK SOLUTIONS & POSTS */}
                       {(section === "solutions" || section === "posts") && (
-                        <div className="mt-4 border-t border-border/70 pt-3">
-                          <div className="flex items-center gap-4">
+                        <div className="mt-5 border-t border-border/80 pt-4">
+                          <div className="flex items-center gap-3">
                             <button
                               type="button"
                               onClick={() => void handleToggleLike(row)}
-                              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                              className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-extrabold transition cursor-pointer shadow-2xs ${
                                 userLiked
-                                  ? "border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-600"
-                                  : "border-border text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
+                                  ? "border-rose-300 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                                  : "border-border text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
                               }`}
                             >
                               <Heart
-                                className={`size-3.5 ${userLiked ? "fill-rose-500 text-rose-500" : ""}`}
+                                className={`size-4 ${userLiked ? "fill-rose-500 text-rose-500" : ""}`}
                               />
                               <span>{postLikes.length} {postLikes.length === 1 ? "Like" : "Likes"}</span>
                             </button>
@@ -1195,9 +1204,13 @@ function SectionPage() {
                                   [row.id]: !prev[row.id],
                                 }))
                               }
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                              className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-extrabold transition cursor-pointer shadow-2xs ${
+                                isCommentsOpen
+                                  ? "border-primary/40 bg-primary/10 text-primary"
+                                  : "border-border text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
+                              }`}
                             >
-                              <MessageSquare className="size-3.5" />
+                              <MessageSquare className="size-4" />
                               <span>
                                 {comments.length}{" "}
                                 {section === "solutions"
@@ -1213,27 +1226,35 @@ function SectionPage() {
 
                           {/* Solutions / Comments List & Input */}
                           {isCommentsOpen && (
-                            <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-4 border border-border">
-                              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                                {section === "solutions"
-                                  ? "Community Solutions & Answers"
-                                  : "Comments & Discussion"}
-                              </h4>
+                            <div className="mt-4 space-y-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-2xs">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                  <Sparkles className="size-3.5 text-primary" />
+                                  {section === "solutions"
+                                    ? "Community Solutions & Answers"
+                                    : "Comments & Discussion"}
+                                </h4>
+                                <span className="text-xs font-bold text-muted-foreground">
+                                  {comments.length} {comments.length === 1 ? "response" : "responses"}
+                                </span>
+                              </div>
 
                               {comments.length === 0 ? (
-                                <p className="text-xs text-muted-foreground italic">
-                                  {section === "solutions"
-                                    ? "No solutions offered yet. Be the first to help out!"
-                                    : "No comments yet. Start the discussion!"}
-                                </p>
+                                <div className="rounded-xl border border-dashed border-border bg-card/60 p-4 text-center">
+                                  <p className="text-xs font-medium text-muted-foreground italic">
+                                    {section === "solutions"
+                                      ? "No solutions offered yet. Be the first to share your expertise!"
+                                      : "No comments yet. Start the conversation!"}
+                                  </p>
+                                </div>
                               ) : (
-                                <div className="space-y-2">
+                                <div className="space-y-2.5">
                                   {comments.map((comment) => (
                                     <div
                                       key={comment.id}
-                                      className="rounded-xl border border-border bg-card p-3 text-xs"
+                                      className="rounded-xl border border-border bg-card p-3.5 sm:p-4 text-xs shadow-2xs transition hover:border-slate-300 dark:hover:border-slate-700"
                                     >
-                                      <div className="flex items-center justify-between">
+                                      <div className="flex items-center justify-between gap-2">
                                         <div
                                           onClick={() => {
                                             if (comment.authorId) {
@@ -1247,33 +1268,36 @@ function SectionPage() {
                                               });
                                             }
                                           }}
-                                          className="flex items-center gap-2 cursor-pointer group"
+                                          className="flex items-center gap-2.5 cursor-pointer group"
                                         >
                                           {comment.authorPhoto ? (
                                             <img
                                               src={comment.authorPhoto}
                                               alt={comment.authorName}
-                                              className="size-5 rounded-full object-cover group-hover:ring-1 group-hover:ring-primary"
+                                              className="size-7 rounded-full object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
                                             />
                                           ) : (
-                                            <span className="grid size-5 place-items-center rounded-full bg-primary/10 text-[10px] font-bold text-primary group-hover:bg-primary group-hover:text-white">
+                                            <span className="grid size-7 place-items-center rounded-full bg-primary/10 text-xs font-black text-primary group-hover:bg-primary group-hover:text-white transition">
                                               {comment.authorName.slice(0, 1)}
                                             </span>
                                           )}
-                                           <span className="font-bold text-slate-950 group-hover:text-primary transition inline-flex items-center gap-1">
-                                             {comment.authorName}
-                                             {(comment.premium || comment.tutorVerified || (comment.authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
-                                               <span title="Verified Member" className="text-primary shrink-0">
-                                                 <BadgeCheck className="size-3" />
-                                               </span>
-                                             )}
-                                           </span>
+                                          <span className="font-extrabold text-sm text-slate-950 dark:text-white group-hover:text-primary transition inline-flex items-center gap-1.5">
+                                            {comment.authorName}
+                                            {(comment.premium || comment.tutorVerified || (comment.authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
+                                              <span title="Verified Member" className="text-primary shrink-0">
+                                                <BadgeCheck className="size-3.5" />
+                                              </span>
+                                            )}
+                                          </span>
                                         </div>
-                                        <span className="text-[10px] text-muted-foreground">
-                                          {new Date(comment.createdAt).toLocaleDateString()}
+                                        <span className="text-xs font-medium text-muted-foreground shrink-0">
+                                          {new Date(comment.createdAt).toLocaleDateString(undefined, {
+                                            month: "short",
+                                            day: "numeric",
+                                          })}
                                         </span>
                                       </div>
-                                      <p className="mt-2 text-slate-700 dark:text-slate-300 leading-relaxed">
+                                      <p className="mt-2.5 text-sm leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
                                         {comment.text}
                                       </p>
                                     </div>
@@ -1282,7 +1306,7 @@ function SectionPage() {
                               )}
 
                               {/* Input box to add a solution */}
-                              <div className="mt-3 flex items-center gap-2">
+                              <div className="mt-3 flex items-center gap-2.5">
                                 <input
                                   value={commentInputs[row.id] || ""}
                                   onChange={(e) =>
@@ -1299,18 +1323,18 @@ function SectionPage() {
                                   }}
                                   placeholder={
                                     section === "solutions"
-                                      ? "Write a clear solution to help..."
-                                      : "Write a comment or response..."
+                                      ? "Write a clear, helpful solution with details..."
+                                      : "Write a thoughtful reply..."
                                   }
-                                  className="h-9 flex-1 rounded-xl border border-input bg-background px-3 text-xs outline-none focus:ring-1 focus:ring-primary text-foreground"
+                                  className="h-11 flex-1 rounded-xl border border-input bg-card px-4 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 shadow-2xs transition"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => void handleAddComment(row.id)}
-                                  className="inline-flex h-9 items-center gap-1 rounded-xl bg-primary px-4 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer"
+                                  className="inline-flex h-11 items-center gap-1.5 rounded-xl bg-primary px-5 text-sm font-extrabold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition cursor-pointer shrink-0"
                                 >
-                                  <Send className="size-3" />{" "}
-                                  {section === "solutions" ? "Post Solution" : "Comment"}
+                                  <Send className="size-3.5" />{" "}
+                                  {section === "solutions" ? "Post Solution" : "Reply"}
                                 </button>
                               </div>
                             </div>
@@ -1431,57 +1455,57 @@ function SectionPage() {
             {/* Create Post / Ask Question Modal */}
             {createPostOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-                <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
+                <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 sm:p-7 shadow-2xl text-card-foreground">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-black text-lg text-slate-950">
+                      <h3 className="font-black text-xl text-slate-950 dark:text-white tracking-tight">
                         Create Post or Ask Question
                       </h3>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         Choose whether to post a skill exchange or ask for a quick solution.
                       </p>
                     </div>
                     <button
                       onClick={() => setCreatePostOpen(false)}
-                      className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="rounded-xl p-1.5 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                     >
                       <X className="size-5" />
                     </button>
                   </div>
 
                   {/* Post Type Selector */}
-                  <div className="mt-5 grid grid-cols-2 gap-2">
+                  <div className="mt-5 grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => setPostFormType("EXCHANGE")}
-                      className={`rounded-xl border p-3 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                      className={`rounded-2xl border p-3.5 text-xs font-bold transition flex flex-col items-center gap-1.5 cursor-pointer ${
                         postFormType === "EXCHANGE"
-                          ? "border-primary bg-primary/10 text-primary shadow-xs"
+                          ? "border-primary bg-primary/10 text-primary shadow-xs ring-1 ring-primary"
                           : "border-border text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
                       }`}
                     >
-                      <Sparkles className="size-4" />
-                      Skill Exchange Post
-                      <small className="font-normal opacity-80">Teach + Learn exchange</small>
+                      <Sparkles className="size-5" />
+                      <span className="font-extrabold text-sm">Skill Exchange Post</span>
+                      <span className="text-[11px] font-normal opacity-80">Teach + Learn barter</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setPostFormType("QUESTION")}
-                      className={`rounded-xl border p-3 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                      className={`rounded-2xl border p-3.5 text-xs font-bold transition flex flex-col items-center gap-1.5 cursor-pointer ${
                         postFormType === "QUESTION"
-                          ? "border-primary bg-primary/10 text-primary shadow-xs"
+                          ? "border-primary bg-primary/10 text-primary shadow-xs ring-1 ring-primary"
                           : "border-border text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
                       }`}
                     >
-                      <HelpCircle className="size-4" />
-                      Quick Solution
-                      <small className="font-normal opacity-80">Ask question for Q&A</small>
+                      <HelpCircle className="size-5" />
+                      <span className="font-extrabold text-sm">Quick Solution</span>
+                      <span className="text-[11px] font-normal opacity-80">Community Q&A</span>
                     </button>
                   </div>
 
-                  <form onSubmit={handleCreatePost} className="mt-4 space-y-3">
-                    <label className="block text-xs font-bold text-muted-foreground">
+                  <form onSubmit={handleCreatePost} className="mt-5 space-y-4">
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300">
                       {postFormType === "EXCHANGE" ? "Exchange Title" : "Problem / Question Title"}
                       <input
                         required
@@ -1492,42 +1516,42 @@ function SectionPage() {
                             ? "e.g., Offering Python mentoring in exchange for UI Design"
                             : "e.g., How to resolve CORS error in React with Firebase Auth?"
                         }
-                        className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-medium outline-none focus:ring-1 focus:ring-primary"
+                        className="mt-1.5 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground shadow-2xs transition"
                       />
                     </label>
 
                     {postFormType === "EXCHANGE" && (
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="block text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        <label className="block text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
                           What You Can Teach
                           <input
                             required
                             value={postTeachSkills}
                             onChange={(e) => setPostTeachSkills(e.target.value)}
                             placeholder="e.g. Python, SQL, Git"
-                            className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-medium outline-none"
+                            className="mt-1.5 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground shadow-2xs transition"
                           />
                         </label>
-                        <label className="block text-xs font-bold text-amber-600 dark:text-amber-400">
+                        <label className="block text-xs font-extrabold text-amber-700 dark:text-amber-400">
                           What You Want to Learn
                           <input
                             required
                             value={postLearnSkills}
                             onChange={(e) => setPostLearnSkills(e.target.value)}
                             placeholder="e.g. Figma, Photography"
-                            className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-medium outline-none"
+                            className="mt-1.5 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground shadow-2xs transition"
                           />
                         </label>
                       </div>
                     )}
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <label className="block text-xs font-bold text-muted-foreground">
+                      <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300">
                         Category
                         <select
                           value={postCategory}
                           onChange={(e) => setPostCategory(e.target.value)}
-                          className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-medium outline-none"
+                          className="mt-1.5 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm font-medium outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground shadow-2xs transition"
                         >
                           <option>Programming</option>
                           <option>Web Development</option>
@@ -1540,7 +1564,7 @@ function SectionPage() {
                       </label>
                     </div>
 
-                    <label className="block text-xs font-bold text-muted-foreground">
+                    <label className="block text-xs font-extrabold text-slate-700 dark:text-slate-300">
                       {postFormType === "EXCHANGE" ? "Details & Availability" : "Description & Context"}
                       <textarea
                         required
@@ -1548,22 +1572,22 @@ function SectionPage() {
                         value={postDescription}
                         onChange={(e) => setPostDescription(e.target.value)}
                         placeholder="Provide details so other members understand your goal..."
-                        className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs outline-none focus:ring-1 focus:ring-primary"
+                        className="mt-1.5 w-full rounded-xl border border-input bg-background p-3.5 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 text-foreground shadow-2xs transition"
                       />
                     </label>
 
-                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                    <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-border">
                       <button
                         type="button"
                         onClick={() => setCreatePostOpen(false)}
-                        className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800"
+                        className="rounded-xl border border-border px-4 py-2.5 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={postSubmitting}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-extrabold text-white hover:bg-primary-hover disabled:opacity-50 shadow-xs active:scale-95 transition cursor-pointer"
                       >
                         <Send className="size-3.5" />
                         {postSubmitting ? "Publishing..." : "Publish Post"}

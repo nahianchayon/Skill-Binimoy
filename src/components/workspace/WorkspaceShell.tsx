@@ -88,14 +88,14 @@ export function WorkspaceShell({
   return (
     <ProtectedView>
       <div className="workspace-app min-h-dvh">
-        <header className="workspace-topbar sticky top-0 z-40 border-b border-white/70 bg-white/80 backdrop-blur-xl">
+        <header className="workspace-topbar sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xs">
           <div className="mx-auto flex h-[4.5rem] max-w-[1440px] items-center gap-5 px-5 sm:px-8">
             <Logo className="shrink-0" to="/dashboard" />
-            <span className="hidden h-6 w-px bg-border lg:block" />
-            <p className="hidden text-xs font-semibold text-muted-foreground lg:block">
-              Learn. Teach. Grow.
+            <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" />
+            <p className="hidden text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 lg:block">
+              Learn · Teach · Grow
             </p>
-            <nav className="ml-auto hidden items-center gap-1 lg:flex">
+            <nav className="ml-auto hidden items-center gap-1.5 lg:flex">
               <Link
                 to="/dashboard"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
@@ -140,13 +140,13 @@ export function WorkspaceShell({
                 FAQ
               </Link>
             </nav>
-            <div className="ml-auto flex items-center gap-2 lg:ml-5">
+            <div className="ml-auto flex items-center gap-2.5 lg:ml-5">
               <Link
                 to="/explore"
                 aria-label="Search skills"
                 className="workspace-icon-button hidden sm:grid"
               >
-                <Search className="size-[17px]" />
+                <Search className="size-[18px]" />
               </Link>
               <Link
                 to="/$section"
@@ -154,7 +154,7 @@ export function WorkspaceShell({
                 aria-label="Notifications"
                 className="workspace-icon-button relative grid"
               >
-                <Bell className="size-[17px]" />
+                <Bell className="size-[18px]" />
                 {unreadNotifications > 0 && (
                   <span className="workspace-message-badge !bg-rose-500">
                     {unreadNotifications > 9 ? "9+" : unreadNotifications}
@@ -166,7 +166,7 @@ export function WorkspaceShell({
                 aria-label="Messages"
                 className="workspace-icon-button relative hidden sm:grid"
               >
-                <MessageCircle className="size-[17px]" />
+                <MessageCircle className="size-[18px]" />
                 {unreadMessages > 0 && (
                   <span className="workspace-message-badge">
                     {unreadMessages > 9 ? "9+" : unreadMessages}
@@ -176,9 +176,10 @@ export function WorkspaceShell({
               <Link
                 to="/$section"
                 params={{ section: "premium" }}
-                className="workspace-premium-link hidden items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-extrabold sm:flex"
+                className="workspace-premium-link hidden items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold sm:flex"
               >
-                <Crown className="size-3.5" /> Premium
+                <Crown className="size-3.5 text-amber-600" />
+                <span>{(profile?.tutorVerified || profile?.premium) ? "Pro Member" : "Get Pro"}</span>
               </Link>
               <button
                 type="button"

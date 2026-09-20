@@ -393,8 +393,10 @@ function VideoCallPage() {
         }
       }
 
-      // If room has no recent offer and peer is not caller, initiate as caller
-      if (!isRecentOffer && !offerCreated && !isCallerParam) {
+      // If room has no active offer, this peer becomes the caller and initiates
+      if (!offer && !offerCreated && (isCallerParam || !roomCallerId || roomCallerId === user.uid)) {
+        void initiateAsCaller();
+      } else if (!isRecentOffer && !offerCreated && !isCallerParam) {
         void initiateAsCaller();
       }
     });

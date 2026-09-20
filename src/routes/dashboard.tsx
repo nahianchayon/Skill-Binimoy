@@ -214,46 +214,46 @@ function Dashboard() {
         <section className="member-hero grid overflow-hidden rounded-[2rem] lg:grid-cols-[1.08fr_0.92fr]">
           <div className="relative z-10 px-6 py-9 sm:px-10 sm:py-12 lg:px-14 lg:py-14">
             <div className="flex items-center gap-2 text-sm font-bold text-primary">
-              <span className="online-dot" /> Good evening, {firstName}{" "}
+              <span className="online-dot" /> Welcome back, {firstName}{" "}
               {(profile?.premium || profile?.tutorVerified) && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-black text-primary">
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-xs font-bold text-primary">
                   <BadgeCheck className="size-3.5" /> Verified Member
                 </span>
               )}
               <span aria-hidden="true">👋</span>
             </div>
-            <h1 className="mt-4 max-w-2xl text-4xl font-black leading-[1.04] tracking-[-0.04em] text-slate-950 sm:text-6xl">
+            <h1 className="mt-4 max-w-2xl text-4xl font-extrabold leading-[1.08] tracking-[-0.035em] text-slate-950 dark:text-white sm:text-5xl lg:text-6xl">
               What are you learning today?
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-              Discover people, skills and opportunities that match your learning goals.
+            <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 dark:text-slate-300 font-normal">
+              Connect with skilled peers, book verified 1-on-1 mentors, and get quick solutions to your problems.
             </p>
-            <div className="hero-search mt-8 flex max-w-xl items-center gap-3 rounded-2xl bg-white p-2 shadow-soft">
-              <Search className="ml-3 size-5 text-slate-400" />
+            <div className="hero-search mt-7 flex max-w-xl items-center gap-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-soft">
+              <Search className="ml-3 size-5 text-slate-400 shrink-0" />
               <input
                 aria-label="Search skills"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="What skill do you want to learn?"
-                className="min-w-0 flex-1 bg-transparent px-1 py-3 text-sm outline-none placeholder:text-slate-400"
+                placeholder="Search skills (e.g. React, Python, UI/UX, English)..."
+                className="min-w-0 flex-1 bg-transparent px-1 py-2.5 text-sm outline-none text-slate-900 dark:text-white placeholder:text-slate-400 font-medium"
               />
               <Link
-                to={query ? "/explore" : "/explore"}
-                className="hidden rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white transition hover:bg-primary-hover sm:block"
+                to="/explore"
+                className="hidden rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-primary-hover shadow-xs sm:block"
               >
                 Search
               </Link>
             </div>
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-6 flex flex-wrap gap-3">
               <Link
                 to="/explore"
-                className="rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white hover:bg-primary-hover"
+                className="rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-white hover:bg-primary-hover shadow-xs transition"
               >
                 Explore skills
               </Link>
               <Link
                 to="/tutors"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:border-primary/30 hover:text-primary"
+                className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-5 py-2.5 text-sm font-bold text-slate-800 dark:text-slate-200 hover:border-primary/40 hover:text-primary transition shadow-xs"
               >
                 Find a tutor
               </Link>

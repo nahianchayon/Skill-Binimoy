@@ -337,30 +337,30 @@ function ExplorePage() {
                             <MapPin className="size-3 text-primary shrink-0" />
                             {person.location || "Bangladesh"}
                           </p>
-                          <span className="text-[11px] font-bold text-primary hover:underline mt-0.5 inline-block">
+                          <span className="text-xs font-extrabold text-primary hover:underline mt-0.5 inline-block">
                             View public profile →
                           </span>
                         </div>
                       </div>
 
                       {/* Bio */}
-                      <p className="mt-3.5 text-xs leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-2">
+                      <p className="mt-3.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300 line-clamp-2">
                         {person.bio || "Open to mutual peer skill swaps."}
                       </p>
 
                       {/* High Contrast Skills Section */}
-                      <div className="mt-5 space-y-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3.5 border border-border">
+                      <div className="mt-5 space-y-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-4 border border-slate-200 dark:border-slate-800 shadow-2xs">
                         {/* Can Teach */}
                         <div>
-                          <div className="flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-1.5">
-                            <Sparkles className="size-3" /> Can Teach (Offered):
+                          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-2">
+                            <Sparkles className="size-3.5" /> Can Teach (Offered):
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {offered.length > 0 ? (
                               offered.map((skill) => (
                                 <span
                                   key={skill}
-                                  className="rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:text-emerald-300"
+                                  className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs"
                                 >
                                   {skill}
                                 </span>
@@ -374,16 +374,16 @@ function ExplorePage() {
                         </div>
 
                         {/* Wants to Learn */}
-                        <div className="border-t border-border/60 pt-2.5">
-                          <div className="flex items-center gap-1 text-[11px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-1.5">
-                            <BookOpen className="size-3" /> Wants to Learn (Desired):
+                        <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
+                          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-2">
+                            <BookOpen className="size-3.5" /> Wants to Learn (Desired):
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             {wanted.length > 0 ? (
                               wanted.map((skill) => (
                                 <span
                                   key={skill}
-                                  className="rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 px-2 py-0.5 text-xs font-bold text-amber-800 dark:text-amber-300"
+                                  className="rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2.5 py-1 text-xs font-extrabold text-amber-800 dark:text-amber-300 shadow-2xs"
                                 >
                                   {skill}
                                 </span>
@@ -399,7 +399,7 @@ function ExplorePage() {
                     </div>
 
                     {/* Action Button */}
-                    <div className="mt-5 pt-3 border-t border-border">
+                    <div className="mt-5 pt-3.5 border-t border-border">
                       <button
                         onClick={() => {
                           setSelectedPerson(person);
@@ -407,7 +407,7 @@ function ExplorePage() {
                             `Hi ${person.displayName || ""}, I would love to do a skill swap with you! I can help you with what I know, and learn ${person.skillsOffered?.[0] ? `“${person.skillsOffered[0]}”` : "from you"}.`,
                           );
                         }}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-98"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-extrabold text-white shadow-xs transition hover:bg-primary-hover active:scale-98 cursor-pointer"
                       >
                         <Send className="size-3.5" /> Send Exchange Request
                       </button>
@@ -484,17 +484,17 @@ function ExplorePage() {
                             </span>
                           )}
                           <div>
-                            <div className="flex items-center gap-1">
-                              <p className="text-xs font-bold text-slate-950 group-hover:text-primary transition">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-extrabold text-slate-950 dark:text-white group-hover:text-primary transition">
                                 {offer.authorName || "Community Member"}
                               </p>
                               {(author?.tutorVerified || author?.premium || (offer.authorId === user?.uid && (profile?.tutorVerified || profile?.premium))) && (
                                 <span title="Verified Member" className="text-primary shrink-0">
-                                  <BadgeCheck className="size-3.5" />
+                                  <BadgeCheck className="size-4" />
                                 </span>
                               )}
                             </div>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground font-medium">
                               {offer.createdAt
                                 ? new Date(offer.createdAt).toLocaleDateString()
                                 : "Recent offer"}
@@ -503,7 +503,7 @@ function ExplorePage() {
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-black text-primary uppercase">
+                          <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-black text-primary uppercase tracking-wide border border-primary/20">
                             Skill Swap Offer
                           </span>
                           {(profile?.role === "ADMIN" || user?.uid === offer.authorId) && (
@@ -524,47 +524,47 @@ function ExplorePage() {
                                   }
                                 }
                               }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-rose-600 hover:text-white dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 transition"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 transition cursor-pointer"
                               title={profile?.role === "ADMIN" ? "Admin: Remove this post" : "Delete your post"}
                             >
-                              <Trash2 className="size-3" />
+                              <Trash2 className="size-3.5" />
                               <span>{profile?.role === "ADMIN" ? "Remove" : "Delete"}</span>
                             </button>
                           )}
                         </div>
                       </div>
 
-                      <h3 className="mt-3 text-base font-black text-slate-950 leading-snug">
+                      <h3 className="mt-3.5 text-lg font-black text-slate-950 dark:text-white leading-snug">
                         {offer.title}
                       </h3>
 
-                      <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-normal">
                         {offer.description}
                       </p>
 
-                      <div className="mt-4 space-y-2 rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-3 border border-border text-xs">
+                      <div className="mt-4 space-y-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-3.5 border border-slate-200 dark:border-slate-800 shadow-2xs text-xs">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase">
+                          <span className="text-xs font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
                             Will Teach:
                           </span>
                           {(offer.teachSkills || []).map((s, i) => (
                             <span
                               key={i}
-                              className="rounded-md bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 px-2 py-0.5 text-xs font-bold text-emerald-800 dark:text-emerald-300"
+                              className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs"
                             >
                               {s}
                             </span>
                           ))}
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-2">
-                          <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase">
+                        <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                          <span className="text-xs font-black text-amber-700 dark:text-amber-400 uppercase tracking-wide">
                             Looking For:
                           </span>
                           {(offer.learnSkills || []).map((s, i) => (
                             <span
                               key={i}
-                              className="rounded-md bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 px-2 py-0.5 text-xs font-bold text-amber-800 dark:text-amber-300"
+                              className="rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2.5 py-1 text-xs font-extrabold text-amber-800 dark:text-amber-300 shadow-2xs"
                             >
                               {s}
                             </span>

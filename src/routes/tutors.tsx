@@ -300,13 +300,13 @@ function TutorsPage() {
           </Link>
         </section>
 
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 shadow-2xs">
-          <Search className="size-4 text-slate-400" />
+        <div className="flex items-center gap-3 rounded-2xl border border-input bg-card px-4 shadow-2xs text-foreground">
+          <Search className="size-4 text-muted-foreground shrink-0" />
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search tutors by name or what they offer (e.g. React, Python, UI/UX)..."
-            className="h-12 flex-1 bg-transparent text-sm outline-none"
+            className="h-12 flex-1 bg-transparent text-sm outline-none text-foreground placeholder:text-muted-foreground"
           />
         </div>
 
@@ -321,10 +321,10 @@ function TutorsPage() {
 
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {visible.length === 0 ? (
-            <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-border bg-white p-12 text-center">
-              <BookOpen className="mx-auto size-8 text-primary" />
-              <h3 className="mt-3 font-black">No tutors found</h3>
-              <p className="mt-2 text-sm text-slate-500">
+            <div className="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
+              <BookOpen className="mx-auto size-10 text-primary mb-3" />
+              <h3 className="text-lg font-black text-slate-950 dark:text-white">No tutors found</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
                 Try searching for a different skill or name.
               </p>
             </div>
@@ -343,7 +343,7 @@ function TutorsPage() {
               return (
                 <article
                   key={tutor.id}
-                  className="tutor-card flex flex-col justify-between rounded-2xl border border-border bg-white p-5 shadow-xs hover:border-primary/40 hover:shadow-md transition-all"
+                  className="tutor-card flex flex-col justify-between rounded-3xl border border-border bg-card p-6 shadow-card hover:border-primary/40 hover:shadow-lift transition-all"
                 >
                   <div>
                     {/* Top: Profile Photo/Avatar, Name, and Verified Badge */}
@@ -364,36 +364,36 @@ function TutorsPage() {
                             tutorVerified: true,
                           })
                         }
-                        className="flex items-center gap-3 cursor-pointer group flex-1 min-w-0"
+                        className="flex items-center gap-3.5 cursor-pointer group flex-1 min-w-0"
                       >
                         {tutor.photoURL ? (
                           <img
                             src={tutor.photoURL}
                             alt={tutorName}
-                            className="size-13 rounded-2xl object-cover ring-2 ring-primary/10 group-hover:ring-primary shrink-0 transition"
+                            className="size-14 rounded-2xl object-cover ring-2 ring-primary/20 group-hover:ring-primary shrink-0 transition"
                           />
                         ) : (
-                          <div className="grid size-13 place-items-center rounded-2xl bg-gradient-to-br from-primary to-primary-hover text-base font-black text-white shrink-0 shadow-xs group-hover:opacity-90 transition">
+                          <div className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-lg font-black text-primary ring-2 ring-primary/10 group-hover:bg-primary group-hover:text-white shrink-0 shadow-xs transition">
                             {initials}
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <h3 className="text-lg font-black text-slate-950 truncate leading-snug group-hover:text-primary transition">
+                          <h3 className="text-lg font-black text-slate-950 dark:text-white truncate leading-snug group-hover:text-primary transition">
                             {tutorName}
                           </h3>
-                          <p className="text-xs font-bold text-primary truncate mt-0.5">
+                          <p className="text-xs font-extrabold text-primary truncate mt-0.5">
                             {tutor.expertise || "Skill Mentor"}
                           </p>
                         </div>
                       </div>
                       <span className="verified-badge shrink-0">
-                        <BadgeCheck className="size-3.5 text-emerald-600" /> Verified
+                        <BadgeCheck className="size-4 text-emerald-600 dark:text-emerald-400" /> Verified
                       </span>
                     </div>
 
                     {/* What they offer - Prominently Displayed Skills */}
-                    <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
-                      <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-2">
+                    <div className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/60 p-3.5 shadow-2xs">
+                      <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
                         <Sparkles className="size-3.5 text-primary" />
                         <span>What they offer:</span>
                       </div>
@@ -402,13 +402,13 @@ function TutorsPage() {
                           skillsList.map((skill) => (
                             <span
                               key={skill}
-                              className="inline-flex items-center rounded-lg bg-white px-2.5 py-1 text-xs font-bold text-slate-800 border border-slate-200/80 shadow-2xs"
+                              className="inline-flex items-center rounded-lg bg-card px-2.5 py-1 text-xs font-extrabold text-foreground border border-border shadow-2xs"
                             >
                               {skill}
                             </span>
                           ))
                         ) : (
-                          <span className="text-xs text-slate-500 italic">
+                          <span className="text-xs text-muted-foreground italic">
                             1-on-1 mentorship & skill guidance
                           </span>
                         )}
@@ -416,34 +416,34 @@ function TutorsPage() {
                     </div>
 
                     {/* Bio & Details */}
-                    <p className="mt-3 text-xs leading-5 text-slate-600 line-clamp-3">
-                      {tutor.bio}
+                    <p className="mt-3.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300 line-clamp-3 font-normal">
+                      {tutor.bio || "Passionate tutor dedicated to helping learners excel in practical skills."}
                     </p>
                   </div>
 
                   {/* Bottom: Rating, Price, & Action Buttons */}
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                  <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
                     <div>
-                      <div className="flex items-center gap-1 text-xs font-bold text-slate-900">
-                        <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                      <div className="flex items-center gap-1 text-xs font-bold text-slate-900 dark:text-slate-100">
+                        <Star className="size-4 fill-amber-400 text-amber-400" />
                         <span>{tutor.rating || 5.0}</span>
-                        <span className="font-normal text-slate-400">
+                        <span className="font-medium text-muted-foreground">
                           ({tutor.sessionsCompleted || 1})
                         </span>
                       </div>
-                      <div className="mt-0.5 text-sm font-black text-primary">
+                      <div className="mt-0.5 text-base font-black text-primary">
                         ৳{tutor.hourlyRate || "500"}
-                        <span className="text-[10px] font-medium text-slate-400">/hr</span>
+                        <span className="text-xs font-normal text-muted-foreground">/hr</span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <Link
                         to="/messages"
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary-soft px-3 py-2 text-xs font-bold text-primary hover:bg-primary/20 transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary-soft px-3.5 py-2.5 text-xs font-bold text-primary hover:bg-primary/20 transition"
                         title="Chat with tutor"
                       >
-                        <MessageCircle className="size-3.5" /> Chat
+                        <MessageCircle className="size-4" /> Chat
                       </Link>
                       <button
                         type="button"
@@ -456,9 +456,9 @@ function TutorsPage() {
                           tomorrow.setDate(tomorrow.getDate() + 1);
                           setBookingDate(tomorrow.toISOString().split("T")[0] || "");
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition"
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-extrabold text-white hover:bg-primary-hover shadow-xs active:scale-95 transition cursor-pointer"
                       >
-                        <CalendarDays className="size-3.5" /> Book Session
+                        <CalendarDays className="size-4" /> Book Session
                       </button>
                     </div>
                   </div>
