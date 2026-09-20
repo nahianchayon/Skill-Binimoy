@@ -102,60 +102,139 @@ function createFallbackStream(label = "User"): MediaStream {
   return stream;
 }
 
-async function acquireMediaStream(userName = "User"): Promise<{ stream: MediaStream; warning?: string }> {
+function createSilentAudioTrack(): MediaStreamTrack | null {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return null;
+    const audioCtx = new AudioCtx();
+    const dest = audioCtx.createMediaStreamDestination();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.00001;
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.start();
+    return dest.stream.getAudioTracks()[0] || null;
+  } catch (e) {
+    console.warn("[VIDEO-CALL] Could not create silent audio track:", e);
+    return null;
+  }
+}
+
+async function acquireMediaStream(userName = "User"): Promise<{
+  stream: MediaStream;
+  isHardwareCamera: boolean;
+  isHardwareMic: boolean;
+  warning?: string | undefined;
+  errorDetail?: string | undefined;
+}> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     console.warn("[VIDEO-CALL] Media devices not supported or insecure HTTP, using fallback stream");
+    const fallback = createFallbackStream(userName);
     return {
-      stream: createFallbackStream(userName),
+      stream: fallback,
+      isHardwareCamera: false,
+      isHardwareMic: false,
       warning: "Opening over non-secure HTTP or browser denied media. Virtual camera stream active.",
     };
   }
 
-  // 1. Try both video and audio
+  let videoTrack: MediaStreamTrack | null = null;
+  let audioTrack: MediaStreamTrack | null = null;
+  let lastErrorName: string | null = null;
+
+  // 1. Try standard unconstrained video & audio first (broadest hardware compatibility)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: true,
+      audio: true,
     });
-    console.log("[VIDEO-CALL] Media stream acquired (video & audio)");
-    return { stream };
-  } catch (err: unknown) {
-    console.warn("[VIDEO-CALL] Could not get both video & audio, trying single device fallback:", err);
-
-    // 2. Try video only
-    try {
-      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      console.log("[VIDEO-CALL] Media stream acquired (video only)");
-      return {
-        stream: videoStream,
-        warning: "Microphone not detected or denied. Video only is active.",
-      };
-    } catch {
-      // Continue
-    }
-
-    // 3. Try audio only
-    try {
-      const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-      console.log("[VIDEO-CALL] Media stream acquired (audio only)");
-      return {
-        stream: audioStream,
-        warning: "Camera not detected or denied. Audio only is active.",
-      };
-    } catch {
-      // Both hardware devices failed
-    }
-
-    // 4. Graceful Fallback: Virtual Animated Stream so connection never crashes
-    console.warn("[VIDEO-CALL] Hardware devices failed, falling back to virtual animated stream");
-    const fallback = createFallbackStream(userName);
-    console.log("[VIDEO-CALL] Media stream acquired (virtual stream fallback)");
+    console.log("[VIDEO-CALL] Media stream acquired (both video & audio hardware)");
     return {
-      stream: fallback,
-      warning:
-        "Camera & mic permission was denied or hardware is in use by another tab. Connected with virtual video stream.",
+      stream,
+      isHardwareCamera: true,
+      isHardwareMic: true,
     };
+  } catch (combinedErr: unknown) {
+    console.warn("[VIDEO-CALL] Combined media acquisition failed, testing individual devices:", combinedErr);
+    if (combinedErr instanceof Error) {
+      lastErrorName = combinedErr.name;
+    }
   }
+
+  // 2. Try video alone (unconstrained)
+  try {
+    const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    videoTrack = vStream.getVideoTracks()[0] || null;
+    console.log("[VIDEO-CALL] Hardware video track acquired successfully");
+  } catch (vErr: unknown) {
+    console.warn("[VIDEO-CALL] Video-only acquisition failed:", vErr);
+    if (vErr instanceof Error && !lastErrorName) {
+      lastErrorName = vErr.name;
+    }
+  }
+
+  // 3. Try audio alone (unconstrained)
+  try {
+    const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioTrack = aStream.getAudioTracks()[0] || null;
+    console.log("[VIDEO-CALL] Hardware audio track acquired successfully");
+  } catch (aErr: unknown) {
+    console.warn("[VIDEO-CALL] Audio-only acquisition failed:", aErr);
+  }
+
+  const resultStream = new MediaStream();
+  let isHardwareCamera = false;
+  let isHardwareMic = false;
+
+  // Attach video track (hardware or fallback canvas)
+  if (videoTrack) {
+    resultStream.addTrack(videoTrack);
+    isHardwareCamera = true;
+  } else {
+    // Generate virtual video stream so local preview & WebRTC connection always have video
+    const fallback = createFallbackStream(userName);
+    const fbVideoTrack = fallback.getVideoTracks()[0];
+    if (fbVideoTrack) {
+      resultStream.addTrack(fbVideoTrack);
+    }
+  }
+
+  // Attach audio track (hardware or silent dummy)
+  if (audioTrack) {
+    resultStream.addTrack(audioTrack);
+    isHardwareMic = true;
+  } else {
+    const silentTrack = createSilentAudioTrack();
+    if (silentTrack) {
+      resultStream.addTrack(silentTrack);
+    }
+  }
+
+  let warning: string | undefined;
+  if (!isHardwareCamera) {
+    if (lastErrorName === "NotAllowedError" || lastErrorName === "PermissionDeniedError") {
+      warning = "Camera permission was blocked. Click the lock/camera icon in your address bar to Allow.";
+    } else if (lastErrorName === "NotReadableError" || lastErrorName === "TrackStartError") {
+      warning = "Camera is in use by another tab or app. Close it and click 'Connect Webcam'.";
+    } else if (lastErrorName === "NotFoundError" || lastErrorName === "DevicesNotFoundError") {
+      warning = "No webcam detected on this device. Virtual stream active.";
+    } else {
+      warning = "Camera could not be accessed directly. Virtual stream active.";
+    }
+  } else if (!isHardwareMic) {
+    warning = "Microphone not detected or denied. Video-only active.";
+  }
+
+  return {
+    stream: resultStream,
+    isHardwareCamera,
+    isHardwareMic,
+    warning,
+    errorDetail: lastErrorName || undefined,
+  };
 }
 
 // Multi-network ICE servers with STUN and custom/fallback TURN relays
@@ -224,6 +303,8 @@ function VideoCallPage() {
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [camera, setCamera] = useState(true);
   const [microphone, setMicrophone] = useState(true);
+  const [isHardwareCamera, setIsHardwareCamera] = useState(true);
+  const [cameraWarning, setCameraWarning] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [status, setStatus] = useState("Preparing secure learning room...");
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -232,13 +313,27 @@ function VideoCallPage() {
   const [seconds, setSeconds] = useState(0);
   const [retryCount, setRetryCount] = useState(0);
 
+  // Callback ref to bind local stream immediately when element mounts
+  const setLocalVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      localVideo.current = el;
+      if (el && activeStream) {
+        el.srcObject = activeStream;
+        el.muted = true;
+        el.playsInline = true;
+        el.play().catch((e) => console.warn("[VIDEO-CALL] Local play error:", e));
+      }
+    },
+    [activeStream],
+  );
+
   // Attach local stream to local video element
   useEffect(() => {
     if (localVideo.current && activeStream) {
       localVideo.current.srcObject = activeStream;
       localVideo.current.muted = true;
       localVideo.current.playsInline = true;
-      localVideo.current.play().catch((e) => console.warn("Local play error:", e));
+      localVideo.current.play().catch((e) => console.warn("[VIDEO-CALL] Local play error:", e));
     }
   }, [activeStream]);
 
@@ -254,7 +349,7 @@ function VideoCallPage() {
       const playPromise = videoEl.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn("Remote video play error (autoplay blocked):", err);
+          console.warn("[VIDEO-CALL] Remote video play error (autoplay blocked):", err);
           setAudioBlocked(true);
         });
       }
@@ -270,8 +365,15 @@ function VideoCallPage() {
       return;
     }
 
+    // Stop any existing tracks before acquiring new ones to release hardware device locks
+    if (localStream.current) {
+      localStream.current.getTracks().forEach((track) => track.stop());
+      localStream.current = null;
+    }
+
     const sessionStartTime = Date.now();
     setMediaError(null);
+    setCameraWarning(null);
     setAudioBlocked(false);
     setCallEnded(false);
     setStatus("Opening camera and microphone...");
@@ -284,11 +386,18 @@ function VideoCallPage() {
       stream = mediaResult.stream;
       localStream.current = stream;
       setActiveStream(stream);
+      setIsHardwareCamera(mediaResult.isHardwareCamera);
 
       const vTrack = stream.getVideoTracks()[0];
       const aTrack = stream.getAudioTracks()[0];
       setCamera(Boolean(vTrack && vTrack.enabled));
       setMicrophone(Boolean(aTrack && aTrack.enabled));
+
+      if (!mediaResult.isHardwareCamera) {
+        setCameraWarning(mediaResult.warning || "Webcam is unavailable. Virtual camera active.");
+      } else {
+        setCameraWarning(null);
+      }
 
       if (mediaResult.warning) {
         setStatus(mediaResult.warning);
@@ -567,15 +676,84 @@ function VideoCallPage() {
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    let isCancelled = false;
+
     void initCall().then((c) => {
-      cleanup = c;
+      if (isCancelled) {
+        c?.();
+      } else {
+        cleanup = c;
+      }
     });
 
     return () => {
+      isCancelled = true;
       cleanup?.();
       localStream.current?.getTracks().forEach((track) => track.stop());
+      localStream.current = null;
     };
   }, [initCall, retryCount]);
+
+  // Re-attempt hardware webcam access and hot-swap into live WebRTC peer connection
+  const retryCamera = useCallback(async () => {
+    console.log("[VIDEO-CALL] Re-requesting hardware webcam access");
+    setCameraWarning(null);
+    try {
+      const freshStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const newVideoTrack = freshStream.getVideoTracks()[0];
+      if (!newVideoTrack) {
+        throw new Error("No video track found on webcam device");
+      }
+
+      console.log("[VIDEO-CALL] Hardware webcam acquired successfully");
+
+      // 1. Hot-swap video track in peer connection if active
+      if (peer.current) {
+        const sender = peer.current.getSenders().find((s) => s.track?.kind === "video");
+        if (sender) {
+          await sender.replaceTrack(newVideoTrack);
+          console.log("[VIDEO-CALL] WebRTC video sender track hot-swapped with hardware webcam");
+        }
+      }
+
+      // 2. Stop old video tracks in localStream
+      if (localStream.current) {
+        localStream.current.getVideoTracks().forEach((t) => {
+          t.stop();
+          localStream.current?.removeTrack(t);
+        });
+        localStream.current.addTrack(newVideoTrack);
+      }
+
+      // 3. Update activeStream state and video element
+      const updatedStream = new MediaStream(localStream.current?.getTracks() || [newVideoTrack]);
+      localStream.current = updatedStream;
+      setActiveStream(updatedStream);
+      setIsHardwareCamera(true);
+      setCamera(true);
+      setMediaError(null);
+      setCameraWarning(null);
+      setStatus("Connected · Live Video Active");
+
+      if (localVideo.current) {
+        localVideo.current.srcObject = updatedStream;
+        localVideo.current.play().catch(console.warn);
+      }
+    } catch (err: unknown) {
+      console.warn("[VIDEO-CALL] Retry camera failed:", err);
+      if (err instanceof Error) {
+        if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+          setCameraWarning("Webcam is in use by another tab or app. Close it and click 'Connect Webcam'.");
+        } else if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          setCameraWarning("Camera permission is blocked. Click the lock/camera icon in your address bar to Allow.");
+        } else {
+          setCameraWarning(err.message || "Failed to connect to hardware camera.");
+        }
+      } else {
+        setCameraWarning("Could not connect to camera.");
+      }
+    }
+  }, []);
 
   // Duration timer
   useEffect(() => {
@@ -583,13 +761,39 @@ function VideoCallPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function toggleTrack(kind: "video" | "audio") {
-    const track = localStream.current?.getTracks().find((item) => item.kind === kind);
-    if (track) {
-      track.enabled = !track.enabled;
-      console.log(`[VIDEO-CALL] ${kind} track toggled: enabled=${track.enabled}`);
-      if (kind === "video") setCamera(track.enabled);
-      else setMicrophone(track.enabled);
+  async function toggleTrack(kind: "video" | "audio") {
+    if (kind === "video") {
+      // If camera is currently off, or if currently using virtual fallback, try activating hardware camera
+      if (!camera || !isHardwareCamera) {
+        if (!isHardwareCamera) {
+          await retryCamera();
+          return;
+        }
+        const track = localStream.current?.getVideoTracks()[0];
+        if (track) {
+          track.enabled = true;
+          setCamera(true);
+        } else {
+          await retryCamera();
+        }
+        return;
+      }
+
+      // Camera is on, disable it
+      const track = localStream.current?.getVideoTracks()[0];
+      if (track) {
+        track.enabled = false;
+        setCamera(false);
+      }
+      return;
+    }
+
+    if (kind === "audio") {
+      const track = localStream.current?.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !track.enabled;
+        setMicrophone(track.enabled);
+      }
     }
   }
 
@@ -720,6 +924,23 @@ function VideoCallPage() {
             </div>
           )}
 
+          {/* Hardware Camera Notice / Reconnect */}
+          {cameraWarning && (
+            <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-950/50 p-4 text-xs font-bold text-amber-200 shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="size-5 shrink-0 text-amber-400" />
+                <span className="text-sm font-semibold">{cameraWarning}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => void retryCamera()}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 active:scale-95 transition cursor-pointer shrink-0 shadow-sm"
+              >
+                <RefreshCw className="size-3.5" /> Connect Webcam
+              </button>
+            </div>
+          )}
+
           {/* Video Grid */}
           <div className="mt-6 grid gap-5 lg:grid-cols-2">
             {/* Remote Video Tile */}
@@ -751,7 +972,7 @@ function VideoCallPage() {
             {/* Local Video Tile */}
             <div className="relative aspect-video overflow-hidden rounded-3xl border border-white/10 bg-slate-900 shadow-2xl flex items-center justify-center">
               <video
-                ref={localVideo}
+                ref={setLocalVideoRef}
                 autoPlay
                 muted
                 playsInline
@@ -759,22 +980,38 @@ function VideoCallPage() {
                   camera && activeStream ? "opacity-100" : "opacity-0 pointer-events-none absolute"
                 }`}
               />
+
+              {/* Virtual Stream Indicator */}
+              {!isHardwareCamera && camera && activeStream && (
+                <div className="absolute top-3.5 left-3.5 z-10 flex items-center gap-2 rounded-xl bg-amber-500/90 px-3 py-1.5 text-xs font-black text-slate-950 backdrop-blur-md shadow-md">
+                  <span>Virtual Camera</span>
+                  <button
+                    type="button"
+                    onClick={() => void retryCamera()}
+                    className="inline-flex items-center gap-1 rounded-lg bg-slate-950/80 px-2 py-0.5 text-[11px] font-bold text-white hover:bg-slate-950 transition cursor-pointer"
+                  >
+                    <RefreshCw className="size-3" /> Connect Webcam
+                  </button>
+                </div>
+              )}
+
               {(!camera || !activeStream) && (
                 <div className="flex flex-col items-center justify-center p-6 text-center text-slate-400">
                   <div className="flex size-16 items-center justify-center rounded-full bg-white/5 mb-3">
                     <CameraOff className="size-8 text-slate-500" />
                   </div>
                   <p className="text-sm font-black text-slate-200">
-                    {mediaError ? "Camera unavailable" : "Camera is turned off"}
+                    {!isHardwareCamera || cameraWarning ? "Hardware camera unavailable" : "Camera is turned off"}
                   </p>
-                  {mediaError && (
-                    <button
-                      onClick={() => setRetryCount((c) => c + 1)}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer"
-                    >
-                      <RefreshCw className="size-3" /> Retry camera
-                    </button>
-                  )}
+                  <p className="mt-1 text-xs text-slate-400 max-w-xs">
+                    {cameraWarning || (mediaError ? mediaError : "Your video feed is turned off.")}
+                  </p>
+                  <button
+                    onClick={() => void retryCamera()}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-white hover:bg-primary-hover active:scale-95 transition cursor-pointer"
+                  >
+                    <RefreshCw className="size-3" /> Connect Webcam
+                  </button>
                 </div>
               )}
               <span className="absolute bottom-3.5 left-3.5 rounded-xl bg-black/60 backdrop-blur-md px-3 py-1 text-xs font-black text-white flex items-center gap-1.5 shadow-xs">
@@ -788,7 +1025,7 @@ function VideoCallPage() {
           <div className="mt-8 flex items-center justify-center gap-4">
             <button
               title={camera ? "Turn camera off" : "Turn camera on"}
-              onClick={() => toggleTrack("video")}
+              onClick={() => void toggleTrack("video")}
               className={`grid size-13 place-items-center rounded-full transition active:scale-95 cursor-pointer shadow-md ${
                 camera ? "bg-white/10 hover:bg-white/20 text-white" : "bg-rose-600 text-white"
               }`}
