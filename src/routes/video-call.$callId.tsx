@@ -104,6 +104,7 @@ function createFallbackStream(label = "User"): MediaStream {
 
 async function acquireMediaStream(userName = "User"): Promise<{ stream: MediaStream; warning?: string }> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    console.warn("[VIDEO-CALL] Media devices not supported or insecure HTTP, using fallback stream");
     return {
       stream: createFallbackStream(userName),
       warning: "Opening over non-secure HTTP or browser denied media. Virtual camera stream active.",
@@ -116,13 +117,15 @@ async function acquireMediaStream(userName = "User"): Promise<{ stream: MediaStr
       video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
+    console.log("[VIDEO-CALL] Media stream acquired (video & audio)");
     return { stream };
   } catch (err: unknown) {
-    console.warn("Could not get both video & audio, trying single device fallback:", err);
+    console.warn("[VIDEO-CALL] Could not get both video & audio, trying single device fallback:", err);
 
     // 2. Try video only
     try {
       const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      console.log("[VIDEO-CALL] Media stream acquired (video only)");
       return {
         stream: videoStream,
         warning: "Microphone not detected or denied. Video only is active.",
@@ -134,6 +137,7 @@ async function acquireMediaStream(userName = "User"): Promise<{ stream: MediaStr
     // 3. Try audio only
     try {
       const audioStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+      console.log("[VIDEO-CALL] Media stream acquired (audio only)");
       return {
         stream: audioStream,
         warning: "Camera not detected or denied. Audio only is active.",
@@ -143,24 +147,41 @@ async function acquireMediaStream(userName = "User"): Promise<{ stream: MediaStr
     }
 
     // 4. Graceful Fallback: Virtual Animated Stream so connection never crashes
+    console.warn("[VIDEO-CALL] Hardware devices failed, falling back to virtual animated stream");
+    const fallback = createFallbackStream(userName);
+    console.log("[VIDEO-CALL] Media stream acquired (virtual stream fallback)");
     return {
-      stream: createFallbackStream(userName),
+      stream: fallback,
       warning:
         "Camera & mic permission was denied or hardware is in use by another tab. Connected with virtual video stream.",
     };
   }
 }
 
-// Multi-network ICE servers with STUN and free TURN relays for symmetric NAT / cellular traversal
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
+// Multi-network ICE servers with STUN and custom/fallback TURN relays
+function getIceServers(): RTCConfiguration {
+  const customTurnUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_SERVER_URL"];
+  const customTurnUser = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_USERNAME"];
+  const customTurnCred = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_CREDENTIAL"];
+
+  const iceServers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
     { urls: "stun:stun3.l.google.com:19302" },
     { urls: "stun:stun4.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
-    {
+  ];
+
+  if (customTurnUrl) {
+    const customConfig: RTCIceServer = {
+      urls: customTurnUrl.split(",").map((u: string) => u.trim()),
+    };
+    if (customTurnUser) customConfig.username = customTurnUser;
+    if (customTurnCred) customConfig.credential = customTurnCred;
+    iceServers.push(customConfig);
+  } else {
+    iceServers.push({
       urls: [
         "stun:openrelay.metered.ca:80",
         "turn:openrelay.metered.ca:80",
@@ -169,15 +190,24 @@ const ICE_SERVERS: RTCConfiguration = {
       ],
       username: "openrelay",
       credential: "openrelay",
-    },
-  ],
-  iceCandidatePoolSize: 10,
-};
+    });
+  }
+
+  return {
+    iceServers,
+    iceCandidatePoolSize: 10,
+  };
+}
 
 function VideoCallPage() {
   const { callId } = Route.useParams();
   const searchParams = Route.useSearch();
   const { user, profile } = useAuth();
+
+  const userRef = useRef(user);
+  userRef.current = user;
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
 
   const isCallerParam = Boolean(
     searchParams?.caller ||
@@ -232,11 +262,15 @@ function VideoCallPage() {
   }, [remoteStream]);
 
   const initCall = useCallback(async () => {
-    if (!user || !db) {
+    const currentUser = userRef.current;
+    const currentProfile = profileRef.current;
+
+    if (!currentUser || !db) {
       setStatus("Sign in required to start a live call.");
       return;
     }
 
+    const sessionStartTime = Date.now();
     setMediaError(null);
     setAudioBlocked(false);
     setCallEnded(false);
@@ -245,7 +279,7 @@ function VideoCallPage() {
     let stream: MediaStream;
     try {
       const mediaResult = await acquireMediaStream(
-        profile?.displayName || user?.displayName || user?.email?.split("@")[0] || "Member",
+        currentProfile?.displayName || currentUser.displayName || currentUser.email?.split("@")[0] || "Member",
       );
       stream = mediaResult.stream;
       localStream.current = stream;
@@ -269,7 +303,8 @@ function VideoCallPage() {
     const room = doc(db, "calls", callId);
     const candidatesCol = collection(room, "candidates");
 
-    const connection = new RTCPeerConnection(ICE_SERVERS);
+    console.log("[VIDEO-CALL] PeerConnection initialized for room:", callId);
+    const connection = new RTCPeerConnection(getIceServers());
     peer.current = connection;
 
     // Add local tracks to peer connection
@@ -279,6 +314,7 @@ function VideoCallPage() {
 
     // Handle incoming remote media tracks
     connection.ontrack = (event) => {
+      console.log("[VIDEO-CALL] Remote track received:", event.track.kind);
       setRemoteStream((prev) => {
         const next = prev ? new MediaStream(prev.getTracks()) : new MediaStream();
         if (!next.getTracks().some((t) => t.id === event.track.id)) {
@@ -296,6 +332,7 @@ function VideoCallPage() {
     const updateConnectionStatus = () => {
       const connState = connection.connectionState;
       const iceState = connection.iceConnectionState;
+      console.log(`[VIDEO-CALL] Connection state changed: peer=${connState}, ice=${iceState}`);
 
       if (connState === "connected" || iceState === "connected" || iceState === "completed") {
         setStatus("Connected · Live Video Active");
@@ -313,15 +350,17 @@ function VideoCallPage() {
 
     // Send local ICE candidates to Firestore
     connection.onicecandidate = async (event) => {
-      if (event.candidate && user) {
+      if (event.candidate && currentUser) {
+        console.log("[VIDEO-CALL] ICE candidate generated");
         try {
           await addDoc(candidatesCol, {
             candidate: event.candidate.toJSON(),
-            sender: user.uid,
+            sender: currentUser.uid,
             createdAt: Date.now(),
           });
+          console.log("[VIDEO-CALL] ICE candidate sent");
         } catch (e) {
-          console.warn("Failed to write candidate:", e);
+          console.warn("[VIDEO-CALL] Failed to write candidate:", e);
         }
       }
     };
@@ -339,9 +378,10 @@ function VideoCallPage() {
 
       if (remoteDescSet && connection.remoteDescription) {
         try {
-          await connection.addIceCandidate(candidateInit);
+          await connection.addIceCandidate(new RTCIceCandidate(candidateInit));
+          console.log("[VIDEO-CALL] ICE candidate added");
         } catch (e) {
-          console.warn("Failed to add ICE candidate:", e);
+          console.warn("[VIDEO-CALL] Failed to add ICE candidate:", e);
         }
       } else {
         queuedCandidates.push(candidateInit);
@@ -354,9 +394,10 @@ function VideoCallPage() {
         const cand = queuedCandidates.shift();
         if (cand && cand.candidate) {
           try {
-            await connection.addIceCandidate(cand);
+            await connection.addIceCandidate(new RTCIceCandidate(cand));
+            console.log("[VIDEO-CALL] ICE candidate added");
           } catch (e) {
-            console.warn("Failed to add queued candidate:", e);
+            console.warn("[VIDEO-CALL] Failed to add queued candidate:", e);
           }
         }
       }
@@ -367,9 +408,10 @@ function VideoCallPage() {
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added") {
           const docData = change.doc.data();
-          if (docData && user && docData["sender"] !== user.uid) {
+          if (docData && currentUser && docData["sender"] !== currentUser.uid) {
             const candidateInit = docData["candidate"] as RTCIceCandidateInit | undefined;
             if (candidateInit && candidateInit.candidate) {
+              console.log("[VIDEO-CALL] ICE candidate received");
               void processCandidate(candidateInit);
             }
           }
@@ -386,22 +428,25 @@ function VideoCallPage() {
       if (offerCreated) return;
       offerCreated = true;
       try {
+        console.log("[VIDEO-CALL] Offer created");
         const localOffer = await connection.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true,
         });
         await connection.setLocalDescription(localOffer);
         await setDoc(room, {
-          callerId: user.uid,
-          callerName: profile?.displayName || user.displayName || "Partner",
+          callerId: currentUser.uid,
+          callerName: currentProfile?.displayName || currentUser.displayName || "Partner",
           offer: { type: localOffer.type, sdp: localOffer.sdp },
           answer: null,
           createdAt: Date.now(),
           ended: false,
+          endedAt: null,
         });
+        console.log("[VIDEO-CALL] Offer published to Firestore");
         setStatus("Waiting for partner to join...");
       } catch (e) {
-        console.warn("Create offer failed:", e);
+        console.warn("[VIDEO-CALL] Create offer failed:", e);
         setStatus("Failed to create call offer.");
       }
     };
@@ -410,8 +455,9 @@ function VideoCallPage() {
     const unsubRoom = onSnapshot(room, async (snapshot) => {
       const data = snapshot.data();
 
-      // Check if partner ended call
-      if (data?.["ended"]) {
+      // Check if call was ended during this current session
+      if (data?.["ended"] && data?.["endedAt"] && data["endedAt"] >= sessionStartTime) {
+        console.log("[VIDEO-CALL] Call terminated: ended by partner");
         setCallEnded(true);
         setStatus("Call ended by partner.");
         return;
@@ -430,13 +476,25 @@ function VideoCallPage() {
       const answer = data["answer"] as RTCSessionDescriptionInit | undefined;
       const offer = data["offer"] as RTCSessionDescriptionInit | undefined;
       const roomCallerId = data["callerId"] as string | undefined;
+      const roomCalleeId = data["calleeId"] as string | undefined;
+
+      // Prevent 3rd party from joining if room is already occupied by 2 other users
+      if (
+        roomCallerId &&
+        roomCalleeId &&
+        roomCallerId !== currentUser.uid &&
+        roomCalleeId !== currentUser.uid
+      ) {
+        setStatus("Room is full (2 participants maximum).");
+        return;
+      }
 
       // Determine role: caller if flagged or creator of room
-      const isCaller = Boolean(isCallerParam || roomCallerId === user.uid);
+      const isCaller = Boolean(isCallerParam || roomCallerId === currentUser.uid);
 
       if (isCaller) {
         // If caller hasn't published offer yet
-        if (!offerCreated && (!offer || roomCallerId === user.uid)) {
+        if (!offerCreated && (!offer || roomCallerId === currentUser.uid)) {
           void initiateAsCaller();
           return;
         }
@@ -448,11 +506,12 @@ function VideoCallPage() {
           connection.signalingState === "have-local-offer"
         ) {
           try {
+            console.log("[VIDEO-CALL] Answer received");
             await connection.setRemoteDescription(new RTCSessionDescription(answer));
             await flushCandidates();
             setStatus("Connected with partner!");
           } catch (e) {
-            console.warn("Caller setRemoteDescription failed:", e);
+            console.warn("[VIDEO-CALL] Caller setRemoteDescription failed:", e);
           }
         }
       } else {
@@ -471,36 +530,40 @@ function VideoCallPage() {
         ) {
           try {
             answerCreated = true;
+            console.log("[VIDEO-CALL] Offer received");
             setStatus("Connecting with partner...");
             await connection.setRemoteDescription(new RTCSessionDescription(offer));
             await flushCandidates();
 
             const localAnswer = await connection.createAnswer();
+            console.log("[VIDEO-CALL] Answer created");
             await connection.setLocalDescription(localAnswer);
             await setDoc(
               room,
               {
                 answer: { type: localAnswer.type, sdp: localAnswer.sdp },
                 answeredAt: Date.now(),
-                calleeId: user.uid,
-                calleeName: profile?.displayName || user.displayName || "Partner",
+                calleeId: currentUser.uid,
+                calleeName: currentProfile?.displayName || currentUser.displayName || "Partner",
               },
               { merge: true },
             );
+            console.log("[VIDEO-CALL] Answer published to Firestore");
             setStatus("Connected with partner!");
           } catch (e) {
-            console.warn("Joiner createAnswer failed:", e);
+            console.warn("[VIDEO-CALL] Joiner createAnswer failed:", e);
           }
         }
       }
     });
 
     return () => {
+      console.log("[VIDEO-CALL] Call terminated: cleaning up connection");
       unsubRoom();
       unsubCandidates();
       connection.close();
     };
-  }, [callId, user, profile?.displayName, isCallerParam]);
+  }, [callId, user?.uid, isCallerParam]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -524,6 +587,7 @@ function VideoCallPage() {
     const track = localStream.current?.getTracks().find((item) => item.kind === kind);
     if (track) {
       track.enabled = !track.enabled;
+      console.log(`[VIDEO-CALL] ${kind} track toggled: enabled=${track.enabled}`);
       if (kind === "video") setCamera(track.enabled);
       else setMicrophone(track.enabled);
     }
@@ -532,6 +596,7 @@ function VideoCallPage() {
   async function shareScreen() {
     if (!peer.current) return;
     try {
+      console.log("[VIDEO-CALL] Screen sharing started");
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const videoTrack = stream.getVideoTracks()[0] ?? null;
       const sender = peer.current.getSenders().find((item) => item.track?.kind === "video");
@@ -539,6 +604,7 @@ function VideoCallPage() {
         await sender.replaceTrack(videoTrack);
         setSharing(true);
         videoTrack.onended = () => {
+          console.log("[VIDEO-CALL] Screen sharing stopped");
           setSharing(false);
           const origTrack = localStream.current?.getVideoTracks()[0] ?? null;
           if (origTrack && sender) {
@@ -547,11 +613,12 @@ function VideoCallPage() {
         };
       }
     } catch (e) {
-      console.warn("Screen sharing canceled or failed:", e);
+      console.warn("[VIDEO-CALL] Screen sharing canceled or failed:", e);
     }
   }
 
   async function handleEndCall() {
+    console.log("[VIDEO-CALL] Call terminated: ended by user");
     try {
       if (db) {
         await setDoc(
@@ -561,7 +628,7 @@ function VideoCallPage() {
         );
       }
     } catch (e) {
-      console.warn("Could not mark call ended:", e);
+      console.warn("[VIDEO-CALL] Could not mark call ended:", e);
     }
     localStream.current?.getTracks().forEach((track) => track.stop());
     window.location.assign("/messages");

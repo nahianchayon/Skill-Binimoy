@@ -36,7 +36,7 @@ service cloud.firestore {
 
     match /calls/{callId} {
       allow read, write: if signedIn();
-      match /candidates/{candidateId} {
+      match /{allChildren=**} {
         allow read, write: if signedIn();
       }
     }

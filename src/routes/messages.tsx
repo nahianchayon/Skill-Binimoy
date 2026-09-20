@@ -96,7 +96,7 @@ function formatMessageTime(createdAt?: { seconds?: number } | string | Date | nu
 }
 
 function MessagesPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -211,6 +211,8 @@ function MessagesPage() {
     const callId = `call_${selected.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_${Date.now()}`;
     const partnerId = getPartnerInfo(selected, user.uid).partnerId;
 
+    console.log("[VIDEO-CALL] Call start:", { callId, partnerId, callerId: user.uid });
+
     try {
       await addDoc(collection(db, "conversations", selected.id, "messages"), {
         senderId: user.uid,
@@ -226,9 +228,28 @@ function MessagesPage() {
         unreadBy: partnerId ? arrayUnion(partnerId) : [],
         updatedAt: serverTimestamp(),
       });
+
+      if (partnerId) {
+        await addDoc(collection(db, "notifications"), {
+          recipientId: partnerId,
+          type: "VIDEO_CALL_INVITE",
+          callId,
+          callerId: user.uid,
+          callerName: profile?.displayName || user.displayName || user.email?.split("@")[0] || "Skill Partner",
+          callerPhoto: profile?.photoURL || user.photoURL || "",
+          conversationId: selected.id,
+          status: "UNREAD",
+          createdAt: serverTimestamp(),
+          title: "Incoming Live Video Call",
+          description: `${profile?.displayName || user.displayName || "Your partner"} started a live video call session.`,
+        });
+        console.log("[VIDEO-CALL] Call invitation sent to", partnerId);
+      }
+
       // Navigate to fresh video call room with caller parameter
       window.location.assign(`/video-call/${callId}?caller=true`);
     } catch (error) {
+      console.error("[VIDEO-CALL] Failed to initiate call:", error);
       setNotice(error instanceof Error ? error.message : "Could not initiate call.");
     }
   }
@@ -359,6 +380,9 @@ function MessagesPage() {
                             <Link
                               to="/video-call/$callId"
                               params={{ callId: message.callId || selected.id }}
+                              onClick={() => {
+                                console.log("[VIDEO-CALL] Call accepted:", message.callId || selected.id);
+                              }}
                               className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover shadow-sm"
                             >
                               <PhoneCall className="size-3.5" /> Join Live Video Call

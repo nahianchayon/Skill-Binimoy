@@ -8,12 +8,15 @@ import {
   Menu,
   MessageCircle,
   Moon,
+  PhoneCall,
+  PhoneOff,
   Search,
   Sun,
+  Video,
   X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { Logo } from "@/components/common/Logo";
 import { ProtectedView } from "@/components/common/ProtectedView";
 import { useAuth } from "@/lib/auth";
@@ -85,9 +88,149 @@ export function WorkspaceShell({
       () => setUnreadMessages(0),
     );
   }, [user]);
+
+  // Live incoming video call listener
+  const [incomingCall, setIncomingCall] = useState<{
+    id: string;
+    callId: string;
+    callerName: string;
+    callerPhoto?: string | undefined;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!user || !db) {
+      setIncomingCall(null);
+      return;
+    }
+
+    // Do not show incoming call modal if already inside the video-call page
+    if (typeof window !== "undefined" && window.location.pathname.startsWith("/video-call")) {
+      setIncomingCall(null);
+      return;
+    }
+
+    const q = query(
+      collection(db, "notifications"),
+      where("recipientId", "==", user.uid),
+      where("type", "==", "VIDEO_CALL_INVITE"),
+    );
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const pending = snapshot.docs
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              status: data["status"] as string | undefined,
+              callId: data["callId"] as string | undefined,
+              callerName: data["callerName"] as string | undefined,
+              callerPhoto: data["callerPhoto"] as string | undefined,
+            };
+          })
+          .filter((d) => d.status === "UNREAD" || d.status === "PENDING");
+
+        if (pending.length > 0) {
+          const latest = pending[pending.length - 1];
+          if (latest && latest.callId) {
+            console.log("[VIDEO-CALL] Call invitation received:", latest);
+            setIncomingCall({
+              id: latest.id,
+              callId: latest.callId,
+              callerName: latest.callerName || "A skill partner",
+              callerPhoto: latest.callerPhoto,
+            });
+            return;
+          }
+        }
+        setIncomingCall(null);
+      },
+      () => setIncomingCall(null),
+    );
+  }, [user]);
+
+  async function declineCall() {
+    if (!incomingCall) return;
+    console.log("[VIDEO-CALL] Call declined:", incomingCall.callId);
+    const notifId = incomingCall.id;
+    setIncomingCall(null);
+    if (db) {
+      try {
+        await updateDoc(doc(db, "notifications", notifId), {
+          status: "DECLINED",
+        });
+      } catch (e) {
+        console.warn("Failed to decline call notification:", e);
+      }
+    }
+  }
+
+  async function acceptCall() {
+    if (!incomingCall) return;
+    console.log("[VIDEO-CALL] Call accepted:", incomingCall.callId);
+    const targetCallId = incomingCall.callId;
+    const notifId = incomingCall.id;
+    setIncomingCall(null);
+    if (db) {
+      try {
+        await updateDoc(doc(db, "notifications", notifId), {
+          status: "ACCEPTED",
+        });
+      } catch (e) {
+        console.warn("Failed to update call notification status:", e);
+      }
+    }
+    window.location.assign(`/video-call/${targetCallId}`);
+  }
+
   return (
     <ProtectedView>
       <div className="workspace-app min-h-dvh">
+        {/* Realtime Incoming Video Call Banner */}
+        {incomingCall && (
+          <aside
+            aria-label="Incoming Video Call"
+            className="fixed top-5 left-1/2 z-50 -translate-x-1/2 w-[calc(100%-2rem)] max-w-lg animate-in slide-in-from-top-4 duration-300"
+          >
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-primary/40 bg-slate-900/95 p-4 text-white shadow-2xl backdrop-blur-xl ring-1 ring-white/10">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-md">
+                  <Video className="size-6 animate-pulse" />
+                  <span className="absolute -top-0.5 -right-0.5 flex size-3">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex size-3 rounded-full bg-emerald-500" />
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-primary-soft">
+                    Incoming Live Video Call
+                  </p>
+                  <h4 className="truncate text-sm font-black text-white">{incomingCall.callerName}</h4>
+                  <p className="truncate text-xs text-slate-400">is calling you for a live session</p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void declineCall()}
+                  className="rounded-xl bg-white/10 p-2.5 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition cursor-pointer"
+                  title="Decline Call"
+                >
+                  <PhoneOff className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void acceptCall()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 shadow-md shadow-emerald-600/30 transition active:scale-95 cursor-pointer"
+                  title="Accept & Join Call"
+                >
+                  <PhoneCall className="size-4" /> Accept
+                </button>
+              </div>
+            </div>
+          </aside>
+        )}
         <header className="workspace-topbar sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xs">
           <div className="mx-auto flex h-[4.5rem] max-w-[1440px] items-center gap-5 px-5 sm:px-8">
             <Logo className="shrink-0" to="/dashboard" />
