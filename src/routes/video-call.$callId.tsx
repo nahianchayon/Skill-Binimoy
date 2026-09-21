@@ -11,7 +11,7 @@ import {
   UserRound,
   Volume2,
 } from "lucide-react";
-import { addDoc, collection, doc, onSnapshot, setDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/firebase";
@@ -237,19 +237,26 @@ async function acquireMediaStream(userName = "User"): Promise<{
   };
 }
 
-// Multi-network ICE servers with STUN and custom/fallback TURN relays
+// Multi-network ICE servers with STUN and custom/fallback TURN relays (UDP, TCP & TURNS TLS)
 function getIceServers(): RTCConfiguration {
   const customTurnUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_SERVER_URL"];
   const customTurnUser = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_USERNAME"];
   const customTurnCred = (import.meta as unknown as { env?: Record<string, string> }).env?.["VITE_TURN_CREDENTIAL"];
 
   const iceServers: RTCIceServer[] = [
+    // 1. Google Global STUN Network
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
     { urls: "stun:stun3.l.google.com:19302" },
     { urls: "stun:stun4.l.google.com:19302" },
+
+    // 2. Cloudflare STUN (port 3478) & Nextcloud STUN (port 443)
     { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.nextcloud.com:443" },
+
+    // 3. Open Relay Project STUN (port 80)
+    { urls: "stun:openrelay.metered.ca:80" },
   ];
 
   if (customTurnUrl) {
@@ -259,22 +266,27 @@ function getIceServers(): RTCConfiguration {
     if (customTurnUser) customConfig.username = customTurnUser;
     if (customTurnCred) customConfig.credential = customTurnCred;
     iceServers.push(customConfig);
-  } else {
-    iceServers.push({
-      urls: [
-        "stun:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:80",
-        "turn:openrelay.metered.ca:443",
-        "turn:openrelay.metered.ca:443?transport=tcp",
-      ],
-      username: "openrelay",
-      credential: "openrelay",
-    });
   }
+
+  // 4. Open Relay Project TURN & TURNS Relays (bypasses any Wi-Fi, Symmetric NAT, mobile hotspot, and corporate firewalls)
+  iceServers.push({
+    urls: [
+      "turn:openrelay.metered.ca:80",
+      "turn:openrelay.metered.ca:80?transport=tcp",
+      "turn:openrelay.metered.ca:443",
+      "turn:openrelay.metered.ca:443?transport=tcp",
+      "turns:openrelay.metered.ca:443?transport=tcp",
+      "turns:openrelay.metered.ca:5349",
+      "turns:openrelay.metered.ca:5349?transport=tcp",
+    ],
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  });
 
   return {
     iceServers,
     iceCandidatePoolSize: 10,
+    iceTransportPolicy: "all",
   };
 }
 
@@ -421,6 +433,25 @@ function VideoCallPage() {
       connection.addTrack(track, stream);
     });
 
+    // Optimize video sender for variable Wi-Fi / cellular data (graceful degradation)
+    connection.getSenders().forEach((sender) => {
+      if (sender.track?.kind === "video") {
+        try {
+          const params = sender.getParameters();
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}];
+          }
+          if (params.encodings[0]) {
+            params.encodings[0].maxBitrate = 1500000; // 1.5 Mbps max for smooth video over cellular/Wi-Fi
+            params.degradationPreference = "maintain-framerate"; // keeps video smooth even if bandwidth drops
+          }
+          void sender.setParameters(params);
+        } catch {
+          // Some browsers restrict setParameters before first negotiation
+        }
+      }
+    });
+
     // Handle incoming remote media tracks
     connection.ontrack = (event) => {
       console.log("[VIDEO-CALL] Remote track received:", event.track.kind);
@@ -437,20 +468,76 @@ function VideoCallPage() {
       }
     };
 
-    // Update connection status
+    let disconnectTimer: number | null = null;
+    let isRecovering = false;
+
+    // Automatic network recovery & ICE restart for Wi-Fi drops, interface switches, or firewall timeouts
+    const handleNetworkRecovery = async () => {
+      if (isRecovering || connection.signalingState === "closed") return;
+      isRecovering = true;
+      console.log("[VIDEO-CALL] Executing network recovery / ICE restart");
+      try {
+        const roomCallerId = (await getDoc(room)).data()?.["callerId"] as string | undefined;
+        const amCaller = Boolean(isCallerParam || roomCallerId === currentUser.uid);
+
+        if (amCaller) {
+          console.log("[VIDEO-CALL] Host executing ICE restart offer");
+          const restartOffer = await connection.createOffer({ iceRestart: true });
+          await connection.setLocalDescription(restartOffer);
+          await setDoc(
+            room,
+            {
+              offer: { type: restartOffer.type, sdp: restartOffer.sdp },
+              answer: null,
+              restartedAt: Date.now(),
+            },
+            { merge: true },
+          );
+        } else {
+          console.log("[VIDEO-CALL] Partner signaling request for ICE restart");
+          await setDoc(
+            room,
+            {
+              requestRestart: Date.now(),
+            },
+            { merge: true },
+          );
+        }
+      } catch (err) {
+        console.warn("[VIDEO-CALL] ICE restart failed, escalating to full re-initialization:", err);
+        setRetryCount((c) => c + 1);
+      } finally {
+        window.setTimeout(() => {
+          isRecovering = false;
+        }, 5000);
+      }
+    };
+
+    // Update connection status with automatic recovery
     const updateConnectionStatus = () => {
       const connState = connection.connectionState;
       const iceState = connection.iceConnectionState;
       console.log(`[VIDEO-CALL] Connection state changed: peer=${connState}, ice=${iceState}`);
 
       if (connState === "connected" || iceState === "connected" || iceState === "completed") {
+        if (disconnectTimer) {
+          window.clearTimeout(disconnectTimer);
+          disconnectTimer = null;
+        }
         setStatus("Connected · Live Video Active");
       } else if (connState === "connecting" || iceState === "checking") {
         setStatus("Connecting with partner...");
       } else if (connState === "disconnected" || iceState === "disconnected") {
         setStatus("Connection interrupted · Reconnecting...");
+        if (!disconnectTimer) {
+          disconnectTimer = window.setTimeout(() => {
+            console.log("[VIDEO-CALL] Disconnect timeout reached, initiating recovery");
+            void handleNetworkRecovery();
+          }, 3500);
+        }
       } else if (connState === "failed" || iceState === "failed") {
-        setStatus("Connection failed. Click Reconnect to restart.");
+        setStatus("Connection failed · Auto-recovering network...");
+        void handleNetworkRecovery();
       }
     };
 
@@ -460,14 +547,14 @@ function VideoCallPage() {
     // Send local ICE candidates to Firestore
     connection.onicecandidate = async (event) => {
       if (event.candidate && currentUser) {
-        console.log("[VIDEO-CALL] ICE candidate generated");
+        console.log(`[VIDEO-CALL] ICE candidate generated (${event.candidate.type || "unknown"})`);
         try {
           await addDoc(candidatesCol, {
             candidate: event.candidate.toJSON(),
             sender: currentUser.uid,
             createdAt: Date.now(),
           });
-          console.log("[VIDEO-CALL] ICE candidate sent");
+          console.log("[VIDEO-CALL] ICE candidate sent to Firestore");
         } catch (e) {
           console.warn("[VIDEO-CALL] Failed to write candidate:", e);
         }
@@ -487,10 +574,10 @@ function VideoCallPage() {
 
       if (remoteDescSet && connection.remoteDescription) {
         try {
-          await connection.addIceCandidate(new RTCIceCandidate(candidateInit));
-          console.log("[VIDEO-CALL] ICE candidate added");
+          await connection.addIceCandidate(candidateInit);
+          console.log("[VIDEO-CALL] ICE candidate added directly");
         } catch (e) {
-          console.warn("[VIDEO-CALL] Failed to add ICE candidate:", e);
+          console.warn("[VIDEO-CALL] Failed to add ICE candidate directly:", e);
         }
       } else {
         queuedCandidates.push(candidateInit);
@@ -503,8 +590,8 @@ function VideoCallPage() {
         const cand = queuedCandidates.shift();
         if (cand && cand.candidate) {
           try {
-            await connection.addIceCandidate(new RTCIceCandidate(cand));
-            console.log("[VIDEO-CALL] ICE candidate added");
+            await connection.addIceCandidate(cand);
+            console.log("[VIDEO-CALL] Queued ICE candidate added");
           } catch (e) {
             console.warn("[VIDEO-CALL] Failed to add queued candidate:", e);
           }
@@ -512,15 +599,20 @@ function VideoCallPage() {
       }
     };
 
-    // Listen to remote ICE candidates
+    // Listen to remote ICE candidates (filter out stale candidates from older sessions)
     const unsubCandidates = onSnapshot(candidatesCol, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added") {
           const docData = change.doc.data();
-          if (docData && currentUser && docData["sender"] !== currentUser.uid) {
+          if (
+            docData &&
+            currentUser &&
+            docData["sender"] !== currentUser.uid &&
+            (!docData["createdAt"] || docData["createdAt"] >= sessionStartTime - 10000)
+          ) {
             const candidateInit = docData["candidate"] as RTCIceCandidateInit | undefined;
             if (candidateInit && candidateInit.candidate) {
-              console.log("[VIDEO-CALL] ICE candidate received");
+              console.log("[VIDEO-CALL] Remote ICE candidate received");
               void processCandidate(candidateInit);
             }
           }
@@ -530,7 +622,9 @@ function VideoCallPage() {
 
     // Signaling variables
     let offerCreated = false;
-    let answerCreated = false;
+    let lastAppliedOfferSdp: string | null = null;
+    let lastAppliedAnswerSdp: string | null = null;
+    let lastHandledRestart: number = 0;
 
     // Helper: Caller creates and publishes fresh offer
     const initiateAsCaller = async () => {
@@ -560,7 +654,7 @@ function VideoCallPage() {
       }
     };
 
-    // Listen for room document updates (offer / answer / ended)
+    // Listen for room document updates (offer / answer / ended / reconnect)
     const unsubRoom = onSnapshot(room, async (snapshot) => {
       const data = snapshot.data();
 
@@ -608,38 +702,52 @@ function VideoCallPage() {
           return;
         }
 
+        // Caller handles requestRestart from Callee
+        if (
+          data?.["requestRestart"] &&
+          typeof data["requestRestart"] === "number" &&
+          data["requestRestart"] > lastHandledRestart
+        ) {
+          lastHandledRestart = data["requestRestart"];
+          console.log("[VIDEO-CALL] Callee requested restart, creating ICE restart offer");
+          void handleNetworkRecovery();
+          return;
+        }
+
         // Caller receives answer from callee
         if (
           answer &&
-          !connection.currentRemoteDescription &&
+          answer.sdp &&
+          answer.sdp !== lastAppliedAnswerSdp &&
           connection.signalingState === "have-local-offer"
         ) {
           try {
+            lastAppliedAnswerSdp = answer.sdp;
             console.log("[VIDEO-CALL] Answer received");
             await connection.setRemoteDescription(new RTCSessionDescription(answer));
             await flushCandidates();
-            setStatus("Connected with partner!");
+            setStatus("Connected · Live Video Active");
           } catch (e) {
             console.warn("[VIDEO-CALL] Caller setRemoteDescription failed:", e);
           }
         }
       } else {
         // We are the Callee / Joiner
-        if (!offer) {
+        if (!offer || !offer.sdp) {
           setStatus("Waiting for host to start video...");
           return;
         }
 
-        // Callee receives offer and hasn't answered yet
+        // Callee receives offer (initial or renegotiation / ICE restart)
         if (
           offer &&
-          !answerCreated &&
-          (connection.signalingState === "stable" || connection.signalingState === "have-local-pranswer") &&
-          !connection.currentRemoteDescription
+          offer.sdp &&
+          offer.sdp !== lastAppliedOfferSdp &&
+          (connection.signalingState === "stable" || connection.signalingState === "have-local-pranswer")
         ) {
           try {
-            answerCreated = true;
-            console.log("[VIDEO-CALL] Offer received");
+            lastAppliedOfferSdp = offer.sdp;
+            console.log("[VIDEO-CALL] Offer received (initial or ICE restart)");
             setStatus("Connecting with partner...");
             await connection.setRemoteDescription(new RTCSessionDescription(offer));
             await flushCandidates();
@@ -658,7 +766,7 @@ function VideoCallPage() {
               { merge: true },
             );
             console.log("[VIDEO-CALL] Answer published to Firestore");
-            setStatus("Connected with partner!");
+            setStatus("Connected · Live Video Active");
           } catch (e) {
             console.warn("[VIDEO-CALL] Joiner createAnswer failed:", e);
           }
@@ -668,6 +776,7 @@ function VideoCallPage() {
 
     return () => {
       console.log("[VIDEO-CALL] Call terminated: cleaning up connection");
+      if (disconnectTimer) window.clearTimeout(disconnectTimer);
       unsubRoom();
       unsubCandidates();
       connection.close();
