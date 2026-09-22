@@ -13,6 +13,7 @@ import {
   FileText,
   Heart,
   HelpCircle,
+  ListTodo,
   MessageCircle,
   MessageSquare,
   PhoneCall,
@@ -41,6 +42,7 @@ import {
 } from "@/lib/exchange";
 import { ProfileModal, type ProfileData } from "@/components/profile/ProfileModal";
 import { FaqContent } from "@/components/faq/FaqContent";
+import { ExchangeWorkspacesView } from "@/components/exchange/ExchangeWorkspacesView";
 
 export const Route = createFileRoute("/$section")({ component: SectionPage });
 
@@ -140,6 +142,12 @@ const metadata: Record<string, SectionConfig> = {
     eyebrow: "Your learning loop",
     collection: "requests",
     icon: Users,
+  },
+  exchanges: {
+    title: "My Skill Exchanges & Workspaces",
+    eyebrow: "Track progress, tasks, and partner milestones",
+    collection: "exchanges",
+    icon: ListTodo,
   },
   messages: {
     title: "Messages",
@@ -665,6 +673,8 @@ function SectionPage() {
           </div>
         ) : section === "faq" ? (
           <FaqContent />
+        ) : section === "exchanges" ? (
+          <ExchangeWorkspacesView />
         ) : section === "premium" ? (
           /* PREMIUM SECTION WITH DUMMY CHECKOUT */
           <div className="space-y-8">
@@ -1374,6 +1384,13 @@ function SectionPage() {
                               >
                                 <MessageCircle className="size-3.5" /> Open Chat & Video Call
                               </Link>
+                              <Link
+                                to="/$section"
+                                params={{ section: "exchanges" }}
+                                className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2 text-xs font-bold text-primary hover:bg-primary hover:text-white transition"
+                              >
+                                <ListTodo className="size-3.5" /> View Workspace & Tasks
+                              </Link>
                             </div>
                           )}
 
@@ -1387,12 +1404,19 @@ function SectionPage() {
 
                       {/* REQUEST ACCEPTED NOTIFICATION */}
                       {row.type === "REQUEST_ACCEPTED" && (
-                        <div className="mt-4">
+                        <div className="mt-4 flex flex-wrap items-center gap-2.5">
                           <Link
                             to="/messages"
                             className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover"
                           >
                             <MessageCircle className="size-3.5" /> Open Chat & Video Call
+                          </Link>
+                          <Link
+                            to="/$section"
+                            params={{ section: "exchanges" }}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2 text-xs font-bold text-primary hover:bg-primary hover:text-white transition"
+                          >
+                            <ListTodo className="size-3.5" /> View Workspace & Tasks
                           </Link>
                         </div>
                       )}

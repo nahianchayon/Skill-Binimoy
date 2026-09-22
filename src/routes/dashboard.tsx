@@ -26,12 +26,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { collection, onSnapshot, query as fsQuery, where as fsWhere } from "firebase/firestore";
 import { useAuth } from "@/lib/auth";
 import { createRecord, orderBy, watchRecords, where } from "@/lib/firestore";
+import { db } from "@/lib/firebase";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import heroIllustration from "@/assets/hero-illustration.png";
 import { mentors, testimonials } from "@/data/content";
 import { ProfileModal, type ProfileData } from "@/components/profile/ProfileModal";
+import type { SkillExchange } from "@/lib/exchange";
 
 type Post = {
   id: string;
@@ -149,6 +152,8 @@ function Dashboard() {
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
   const firstName = profile?.displayName?.split(" ")[0] || "there";
 
+  const [activeExchanges, setActiveExchanges] = useState<SkillExchange[]>([]);
+
   useEffect(() => {
     if (!user) return;
     return watchRecords<Post>(
@@ -156,6 +161,40 @@ function Dashboard() {
       [where("authorId", "==", user.uid), orderBy("createdAt", "desc")],
       setPosts,
       (error) => setMessage(error.message),
+    );
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || !db) return;
+    const q = fsQuery(
+      collection(db, "exchanges"),
+      fsWhere("participantIds", "array-contains", user.uid),
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: SkillExchange[] = snapshot.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            requestId: (d["requestId"] as string | null | undefined) || undefined,
+            conversationId: (d["conversationId"] as string | null | undefined) || undefined,
+            participantIds: (d["participantIds"] as string[]) || [],
+            participants: (d["participants"] as SkillExchange["participants"]) || {},
+            title: (d["title"] as string | undefined) || undefined,
+            skillOffer: (d["skillOffer"] as string | undefined) || undefined,
+            skillWanted: (d["skillWanted"] as string | undefined) || undefined,
+            status: (d["status"] as "ACTIVE" | "COMPLETED" | "PAUSED") || "ACTIVE",
+            progress: typeof d["progress"] === "number" ? d["progress"] : 0,
+            totalTasks: typeof d["totalTasks"] === "number" ? d["totalTasks"] : 0,
+            completedTasks: typeof d["completedTasks"] === "number" ? d["completedTasks"] : 0,
+            createdAt: d["createdAt"],
+            updatedAt: d["updatedAt"],
+          };
+        });
+        setActiveExchanges(list.filter((ex) => ex.status === "ACTIVE"));
+      },
+      (error) => console.warn("Failed to listen to active exchanges:", error),
     );
   }, [user]);
 
@@ -372,6 +411,111 @@ function Dashboard() {
             ))}
           </div>
         </section>
+
+        {/* Active Skill Exchanges & Real-time Progress */}
+        {activeExchanges.length > 0 && (
+          <section className="space-y-4">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="eyebrow">Active Workspaces</p>
+                <h2 className="section-title">Your Skill Exchanges & Progress</h2>
+                <p className="section-subtitle">
+                  Real-time todo lists, milestones, and progress bars with your connected partners.
+                </p>
+              </div>
+              <Link
+                to="/$section"
+                params={{ section: "exchanges" }}
+                className="section-link hidden sm:flex"
+              >
+                View all exchanges <ArrowRight className="size-4" />
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {activeExchanges.map((exchange) => {
+                const partnerId = exchange.participantIds.find((id) => id !== user?.uid) || "";
+                const partner = exchange.participants[partnerId];
+                const partnerName = partner?.displayName || partner?.email?.split("@")[0] || "Partner";
+                const progress = exchange.progress ?? 0;
+
+                return (
+                  <div
+                    key={exchange.id}
+                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xs hover:shadow-md transition flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {partner?.photoURL ? (
+                            <img
+                              src={partner.photoURL}
+                              alt={partnerName}
+                              className="size-10 rounded-full object-cover shrink-0"
+                            />
+                          ) : (
+                            <div className="grid size-10 place-items-center rounded-full bg-primary/10 text-primary font-bold text-xs shrink-0">
+                              {partnerName.slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                              {partnerName}
+                            </h4>
+                            <p className="text-[11px] text-slate-500 truncate">
+                              {exchange.title || "Mutual skill exchange"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-xs font-black shrink-0 ${
+                            progress === 100 ? "text-emerald-500" : "text-primary"
+                          }`}
+                        >
+                          {progress}%
+                        </span>
+                      </div>
+
+                      {/* Visual progress bar: 0% ━━ 100% */}
+                      <div className="mt-4">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold mb-1">
+                          <span>0%</span>
+                          <span>{exchange.completedTasks} of {exchange.totalTasks} tasks completed</span>
+                          <span>100%</span>
+                        </div>
+                        <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              progress === 100 ? "bg-emerald-500" : "bg-primary"
+                            }`}
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2">
+                      <Link
+                        to="/messages"
+                        className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+                      >
+                        <MessageCircle className="size-3.5" /> Inbox & Tasks
+                      </Link>
+                      <Link
+                        to="/$section"
+                        params={{ section: "exchanges" }}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                      >
+                        Workspace <ChevronRight className="size-3" />
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr]">
           <div>

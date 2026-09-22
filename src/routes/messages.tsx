@@ -1,5 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Check, CheckCheck, MessageCircle, PhoneCall, Send, Video } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  CheckSquare,
+  ChevronDown,
+  ChevronUp,
+  ListTodo,
+  MessageCircle,
+  PhoneCall,
+  Plus,
+  Send,
+  Square,
+  Trash2,
+  Video,
+} from "lucide-react";
 import {
   addDoc,
   arrayRemove,
@@ -18,30 +32,42 @@ import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { ProtectedView } from "@/components/common/ProtectedView";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/firebase";
+import {
+  createExchangeTask,
+  deleteExchangeTask,
+  getOrCreateExchangeForUsers,
+  toggleExchangeTaskCompletion,
+  type ExchangeTask,
+  type SkillExchange,
+} from "@/lib/exchange";
 
 type ParticipantInfo = {
-  displayName?: string;
-  photoURL?: string | null;
-  email?: string;
+  displayName?: string | undefined;
+  photoURL?: string | null | undefined;
+  email?: string | undefined;
 };
 
 type Conversation = {
   id: string;
-  participantIds?: string[];
-  participants?: Record<string, ParticipantInfo>;
-  lastMessage?: string;
-  lastMessageAt?: string | { seconds?: number };
-  unreadBy?: string[];
+  participantIds?: string[] | undefined;
+  participants?: Record<string, ParticipantInfo> | undefined;
+  lastMessage?: string | undefined;
+  lastMessageAt?: string | { seconds?: number } | undefined;
+  unreadBy?: string[] | undefined;
+  exchangeId?: string | undefined;
+  exchangeProgress?: number | undefined;
+  exchangeTasksCompleted?: number | undefined;
+  exchangeTasksTotal?: number | undefined;
 };
 
 type Message = {
   id: string;
-  senderId?: string;
-  text?: string;
-  isCallInvite?: boolean;
-  callId?: string;
-  readBy?: string[];
-  createdAt?: { seconds?: number } | string | Date;
+  senderId?: string | undefined;
+  text?: string | undefined;
+  isCallInvite?: boolean | undefined;
+  callId?: string | undefined;
+  readBy?: string[] | undefined;
+  createdAt?: { seconds?: number } | string | Date | undefined;
 };
 
 export const Route = createFileRoute("/messages")({
@@ -49,7 +75,7 @@ export const Route = createFileRoute("/messages")({
   component: MessagesPage,
 });
 
-function getPartnerInfo(conversation: Conversation, currentUserId?: string) {
+function getPartnerInfo(conversation: Conversation, currentUserId?: string | undefined) {
   const partnerId = conversation.participantIds?.find((id) => id !== currentUserId);
   const info =
     partnerId && conversation.participants ? conversation.participants[partnerId] : undefined;
@@ -64,14 +90,14 @@ function getPartnerInfo(conversation: Conversation, currentUserId?: string) {
       .toUpperCase() || "SB";
 
   return {
-    partnerId,
+    partnerId: partnerId || "",
     name,
     photoURL: info?.photoURL || null,
     initials,
   };
 }
 
-function formatMessageTime(createdAt?: { seconds?: number } | string | Date | null): string {
+function formatMessageTime(createdAt?: { seconds?: number } | string | Date | null | undefined): string {
   if (!createdAt) return "Just now";
   let date: Date;
   if (
@@ -104,6 +130,16 @@ function MessagesPage() {
   const [notice, setNotice] = useState("");
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const isInitialLoadRef = useRef(true);
+
+  // Exchange and Shared Todo List State in Inbox
+  const [activeExchangeId, setActiveExchangeId] = useState<string | null>(null);
+  const [activeExchange, setActiveExchange] = useState<SkillExchange | null>(null);
+  const [activeTasks, setActiveTasks] = useState<ExchangeTask[]>([]);
+  const [isTodoExpanded, setIsTodoExpanded] = useState(false);
+  const [todoFilter, setTodoFilter] = useState<"ALL" | "PENDING" | "COMPLETED">("ALL");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
+  const [isAddingTask, setIsAddingTask] = useState(false);
 
   // Auto-scroll ONLY inside the chat messages container (never scrolls the browser window)
   useEffect(() => {
@@ -180,6 +216,177 @@ function MessagesPage() {
     }).catch(console.warn);
   }, [selectedId, messages, user]);
 
+  const selectedPartner = selected ? getPartnerInfo(selected, user?.uid) : null;
+
+  // Sync exchangeId when conversation is selected
+  useEffect(() => {
+    if (!user || !selected || !selectedPartner || !selectedPartner.partnerId) {
+      setActiveExchangeId(null);
+      setActiveExchange(null);
+      setActiveTasks([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    if (selected.exchangeId) {
+      setActiveExchangeId(selected.exchangeId);
+    } else {
+      void getOrCreateExchangeForUsers({
+        currentUserId: user.uid,
+        currentUserName: profile?.displayName || user.displayName || "Member",
+        currentUserPhoto: profile?.photoURL || user.photoURL,
+        partnerId: selectedPartner.partnerId,
+        partnerName: selectedPartner.name,
+        partnerPhoto: selectedPartner.photoURL,
+        conversationId: selected.id,
+      }).then((id) => {
+        if (isMounted && id) {
+          setActiveExchangeId(id);
+        }
+      });
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user, selected?.id, selected?.exchangeId, selectedPartner?.partnerId, profile?.displayName, profile?.photoURL]);
+
+  // Real-time listener for exchange metadata
+  useEffect(() => {
+    if (!activeExchangeId || !db) {
+      setActiveExchange(null);
+      return;
+    }
+
+    return onSnapshot(
+      doc(db, "exchanges", activeExchangeId),
+      (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          setActiveExchange({
+            id: snap.id,
+            requestId: (d["requestId"] as string | null | undefined) || undefined,
+            conversationId: (d["conversationId"] as string | null | undefined) || undefined,
+            participantIds: (d["participantIds"] as string[]) || [],
+            participants: (d["participants"] as SkillExchange["participants"]) || {},
+            title: (d["title"] as string | undefined) || undefined,
+            skillOffer: (d["skillOffer"] as string | undefined) || undefined,
+            skillWanted: (d["skillWanted"] as string | undefined) || undefined,
+            status: (d["status"] as "ACTIVE" | "COMPLETED" | "PAUSED") || "ACTIVE",
+            progress: typeof d["progress"] === "number" ? d["progress"] : 0,
+            totalTasks: typeof d["totalTasks"] === "number" ? d["totalTasks"] : 0,
+            completedTasks: typeof d["completedTasks"] === "number" ? d["completedTasks"] : 0,
+            createdAt: d["createdAt"],
+            updatedAt: d["updatedAt"],
+          });
+        }
+      },
+      (err) => console.warn("Failed to listen to exchange:", err),
+    );
+  }, [activeExchangeId]);
+
+  // Real-time listener for exchange tasks
+  useEffect(() => {
+    if (!activeExchangeId || !db) {
+      setActiveTasks([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "exchanges", activeExchangeId, "tasks"),
+      orderBy("createdAt", "asc"),
+    );
+
+    return onSnapshot(
+      q,
+      (snap) => {
+        const loaded: ExchangeTask[] = snap.docs.map((docSnap) => {
+          const d = docSnap.data();
+          return {
+            id: docSnap.id,
+            exchangeId: activeExchangeId,
+            title: (d["title"] as string) || "Untitled Task",
+            description: (d["description"] as string | undefined) || undefined,
+            createdBy: (d["createdBy"] as string) || "",
+            createdByName: (d["createdByName"] as string | undefined) || undefined,
+            assignedTo: (d["assignedTo"] as string | undefined) || undefined,
+            assignedToName: (d["assignedToName"] as string | undefined) || undefined,
+            status: (d["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
+            dueDate: (d["dueDate"] as string | undefined) || undefined,
+            completed: d["completed"] === true,
+            completedAt: d["completedAt"],
+            completedBy: (d["completedBy"] as string | undefined) || undefined,
+            createdAt: d["createdAt"],
+            updatedAt: d["updatedAt"],
+          };
+        });
+        setActiveTasks(loaded);
+      },
+      (err) => console.warn("Failed to listen to tasks:", err),
+    );
+  }, [activeExchangeId]);
+
+  // Dynamic progress calculation
+  const totalTasks = activeTasks.length;
+  const completedTasks = activeTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
+  const progressPercent =
+    totalTasks === 0
+      ? (activeExchange?.progress ?? 0)
+      : Math.round((completedTasks / totalTasks) * 100);
+
+  const filteredTasks = activeTasks.filter((t) => {
+    if (todoFilter === "PENDING") return !t.completed && t.status !== "COMPLETED";
+    if (todoFilter === "COMPLETED") return t.completed || t.status === "COMPLETED";
+    return true;
+  });
+
+  async function handleToggleInboxTask(task: ExchangeTask) {
+    if (!activeExchangeId || !user) return;
+    await toggleExchangeTaskCompletion({
+      exchangeId: activeExchangeId,
+      taskId: task.id,
+      completed: !task.completed,
+      completedBy: user.uid,
+    });
+  }
+
+  async function handleAddInboxTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activeExchangeId || !user || !newTaskTitle.trim()) return;
+
+    let assigneeName = "Both Members";
+    if (selectedPartner) {
+      if (newTaskAssignee === user.uid) {
+        assigneeName = profile?.displayName || user.displayName || "You";
+      } else if (newTaskAssignee === selectedPartner.partnerId) {
+        assigneeName = selectedPartner.name;
+      }
+    }
+
+    await createExchangeTask({
+      exchangeId: activeExchangeId,
+      title: newTaskTitle.trim(),
+      createdBy: user.uid,
+      createdByName: profile?.displayName || user.displayName || "Member",
+      assignedTo: newTaskAssignee,
+      assignedToName: assigneeName,
+    });
+
+    setNewTaskTitle("");
+    setIsAddingTask(false);
+  }
+
+  async function handleDeleteInboxTask(taskId: string, title: string) {
+    if (!activeExchangeId) return;
+    if (window.confirm(`Delete task "${title}"?`)) {
+      await deleteExchangeTask({
+        exchangeId: activeExchangeId,
+        taskId,
+      });
+    }
+  }
+
   async function send(event: React.FormEvent) {
     event.preventDefault();
     if (!user || !selected || !db || !text.trim()) return;
@@ -187,10 +394,10 @@ function MessagesPage() {
     const partnerId = getPartnerInfo(selected, user.uid).partnerId;
     const convId = selected.id;
 
-    // 1. Immediately clear the input box so typed text never remains
+    // 1. Immediately clear the input box
     setText("");
 
-    // 2. Optimistic local message insertion for instantaneous UX
+    // 2. Optimistic local message insertion
     const tempId = `temp_${Date.now()}`;
     const optimisticMessage: Message = {
       id: tempId,
@@ -215,7 +422,6 @@ function MessagesPage() {
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      // Revert optimistic message and restore text on failure
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setText(trimmed);
       setNotice(error instanceof Error ? error.message : "Could not send message.");
@@ -226,8 +432,6 @@ function MessagesPage() {
     if (!user || !targetConv || !db) return;
     const callId = `call_${targetConv.id.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10)}_${Date.now()}`;
     const partnerId = getPartnerInfo(targetConv, user.uid).partnerId;
-
-    console.log("[VIDEO-CALL] Call start:", { callId, partnerId, callerId: user.uid });
 
     try {
       await addDoc(collection(db, "conversations", targetConv.id, "messages"), {
@@ -259,18 +463,14 @@ function MessagesPage() {
           title: "Incoming Live Video Call",
           description: `${profile?.displayName || user.displayName || "Your partner"} started a live video call session.`,
         });
-        console.log("[VIDEO-CALL] Call invitation sent to", partnerId);
       }
 
-      // Navigate to fresh video call room with caller parameter
       window.location.assign(`/video-call/${callId}?caller=true`);
     } catch (error) {
       console.error("[VIDEO-CALL] Failed to initiate call:", error);
       setNotice(error instanceof Error ? error.message : "Could not initiate call.");
     }
   }
-
-  const selectedPartner = selected ? getPartnerInfo(selected, user?.uid) : null;
 
   return (
     <ProtectedView>
@@ -356,6 +556,7 @@ function MessagesPage() {
           <section className="chat-panel flex flex-col h-full overflow-hidden">
             {selected && selectedPartner ? (
               <>
+                {/* Chat Partner Header */}
                 <div className="chat-header sticky top-0 z-20 flex items-center justify-between shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 shadow-xs">
                   <div className="flex items-center gap-3 min-w-0">
                     {selectedPartner.photoURL ? (
@@ -375,15 +576,258 @@ function MessagesPage() {
                       </small>
                     </div>
                   </div>
-                  <button
-                    onClick={() => void startVideoCall()}
-                    className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary-hover active:scale-95 px-4 py-2.5 text-xs font-black text-white shadow-sm transition cursor-pointer shrink-0"
-                    title={`Start Live Video Call with ${selectedPartner.name}`}
-                  >
-                    <Video className="size-4" />
-                    <span className="hidden sm:inline">Start Video Call</span>
-                    <span className="sm:hidden">Call</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsTodoExpanded(!isTodoExpanded)}
+                      className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer border ${
+                        isTodoExpanded
+                          ? "bg-primary text-white border-primary shadow-xs"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                      }`}
+                      title="Toggle Shared Todo List"
+                    >
+                      <ListTodo className="size-3.5" />
+                      <span className="hidden sm:inline">Tasks</span>
+                      <span className="rounded-full bg-white/20 dark:bg-black/20 px-1.5 py-0.2 text-[10px]">
+                        {completedTasks}/{totalTasks}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => void startVideoCall()}
+                      className="inline-flex items-center gap-2 rounded-xl bg-primary hover:bg-primary-hover active:scale-95 px-3.5 py-2 text-xs font-black text-white shadow-sm transition cursor-pointer shrink-0"
+                      title={`Start Live Video Call with ${selectedPartner.name}`}
+                    >
+                      <Video className="size-4" />
+                      <span className="hidden sm:inline">Start Call</span>
+                      <span className="sm:hidden">Call</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress Bar & Shared Todo List in Inbox */}
+                <div className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-850/95 backdrop-blur-xs px-4 py-2.5 shrink-0 transition">
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsTodoExpanded(!isTodoExpanded)}
+                      className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-primary transition cursor-pointer min-w-0"
+                    >
+                      <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <ListTodo className="size-3.5" />
+                      </div>
+                      <span className="truncate">Exchange Todo List</span>
+                      <span className="shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 text-[10px] font-black text-slate-700 dark:text-slate-300">
+                        {completedTasks}/{totalTasks}
+                      </span>
+                      {isTodoExpanded ? (
+                        <ChevronUp className="size-3 text-slate-400 shrink-0" />
+                      ) : (
+                        <ChevronDown className="size-3 text-slate-400 shrink-0" />
+                      )}
+                    </button>
+
+                    <div className="flex items-center gap-3 flex-1 max-w-xs sm:max-w-sm justify-end">
+                      {/* Visual Progress Bar: 0% ━━━━ 100% */}
+                      <div className="flex-1 min-w-[80px] sm:min-w-[130px]">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1">
+                          <span>0%</span>
+                          <span
+                            className={
+                              progressPercent === 100
+                                ? "text-emerald-600 dark:text-emerald-400 font-black"
+                                : "text-primary font-black"
+                            }
+                          >
+                            {progressPercent}%
+                          </span>
+                          <span>100%</span>
+                        </div>
+                        <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ease-out ${
+                              progressPercent === 100
+                                ? "bg-emerald-500"
+                                : "bg-gradient-to-r from-primary to-indigo-500"
+                            }`}
+                            style={{ width: `${progressPercent}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsTodoExpanded(true);
+                          setIsAddingTask(!isAddingTask);
+                        }}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition cursor-pointer"
+                        title="Add Shared Task"
+                      >
+                        <Plus className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expandable Shared Todo List Drawer */}
+                  {isTodoExpanded && (
+                    <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 space-y-2.5 max-h-56 overflow-y-auto animate-in fade-in duration-200">
+                      {/* Controls & Filters */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center rounded-lg bg-slate-200/60 dark:bg-slate-800 p-0.5 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setTodoFilter("ALL")}
+                            className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                              todoFilter === "ALL"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            All ({totalTasks})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTodoFilter("PENDING")}
+                            className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                              todoFilter === "PENDING"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            Pending ({totalTasks - completedTasks})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTodoFilter("COMPLETED")}
+                            className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                              todoFilter === "COMPLETED"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            Done ({completedTasks})
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingTask(!isAddingTask)}
+                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          {isAddingTask ? "Cancel" : "+ Add Task"}
+                        </button>
+                      </div>
+
+                      {/* Add Task Input Form */}
+                      {isAddingTask && (
+                        <form onSubmit={handleAddInboxTask} className="flex items-center gap-1.5 p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-primary/30">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Add task title (e.g. review code together)..."
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            className="flex-1 text-xs px-2 py-1 bg-transparent dark:text-white outline-none"
+                          />
+                          <select
+                            value={newTaskAssignee}
+                            onChange={(e) => setNewTaskAssignee(e.target.value)}
+                            className="text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-slate-700 dark:text-slate-200 outline-none"
+                          >
+                            <option value="BOTH">Both</option>
+                            <option value={user?.uid || "ME"}>You</option>
+                            {selectedPartner && <option value={selectedPartner.partnerId}>{selectedPartner.name}</option>}
+                          </select>
+                          <button
+                            type="submit"
+                            className="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-bold text-white hover:bg-primary-hover transition cursor-pointer"
+                          >
+                            Save
+                          </button>
+                        </form>
+                      )}
+
+                      {/* Task List */}
+                      {filteredTasks.length === 0 ? (
+                        <div className="py-2 text-center text-xs text-slate-400">
+                          {todoFilter === "ALL"
+                            ? "No tasks yet. Click '+ Add Task' to add learning milestones!"
+                            : todoFilter === "PENDING"
+                              ? "All tasks are completed! Awesome work! 🎉"
+                              : "No tasks completed yet."}
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          {filteredTasks.map((task) => {
+                            const isCompleted = task.completed || task.status === "COMPLETED";
+                            const isAssignedToMe = Boolean(user?.uid && task.assignedTo === user.uid);
+                            const isAssignedToPartner = selectedPartner && task.assignedTo === selectedPartner.partnerId;
+
+                            return (
+                              <div
+                                key={task.id}
+                                className={`group flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border transition ${
+                                  isCompleted
+                                    ? "bg-slate-100/50 dark:bg-slate-800/20 border-slate-200/40 dark:border-slate-800/40 opacity-70"
+                                    : "bg-white dark:bg-slate-800 border-slate-200/70 dark:border-slate-700/70 shadow-2xs"
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleInboxTask(task)}
+                                  className="shrink-0 text-slate-400 hover:text-primary transition cursor-pointer"
+                                  title={isCompleted ? "Mark pending" : "Mark completed"}
+                                >
+                                  {isCompleted ? (
+                                    <CheckSquare className="size-4 text-emerald-500 dark:text-emerald-400" />
+                                  ) : (
+                                    <Square className="size-4 text-slate-400 hover:text-primary" />
+                                  )}
+                                </button>
+
+                                <div className="flex-1 min-w-0 flex items-center gap-2">
+                                  <span
+                                    className={`text-xs font-semibold truncate ${
+                                      isCompleted
+                                        ? "line-through text-slate-400 dark:text-slate-500"
+                                        : "text-slate-800 dark:text-slate-100"
+                                    }`}
+                                  >
+                                    {task.title}
+                                  </span>
+                                  <span
+                                    className={`shrink-0 rounded px-1.5 py-0.2 text-[9px] font-bold ${
+                                      isAssignedToMe
+                                        ? "bg-primary/10 text-primary"
+                                        : isAssignedToPartner
+                                          ? "bg-purple-500/10 text-purple-600 dark:text-purple-400"
+                                          : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                                    }`}
+                                  >
+                                    {isAssignedToMe
+                                      ? "You"
+                                      : isAssignedToPartner
+                                        ? selectedPartner?.name
+                                        : "Both"}
+                                  </span>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteInboxTask(task.id, task.title)}
+                                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition p-0.5 cursor-pointer"
+                                  title="Delete task"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div ref={chatMessagesRef} className="chat-messages flex-1 overflow-y-auto p-4 space-y-3">
@@ -411,10 +855,10 @@ function MessagesPage() {
                             <div className="flex size-10 items-center justify-center rounded-full bg-primary text-white mb-2 shadow-sm">
                               <Video className="size-5" />
                             </div>
-                            <h4 className="font-bold text-sm text-slate-900">
+                            <h4 className="font-bold text-sm text-slate-900 dark:text-white">
                               Live Video Call Session
                             </h4>
-                            <p className="text-xs text-slate-600 mt-1 mb-3">
+                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 mb-3">
                               {isOwn
                                 ? "You started a live video call room."
                                 : `${selectedPartner.name} is inviting you to a live video call.`}

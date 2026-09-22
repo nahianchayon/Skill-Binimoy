@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Crown,
   HelpCircle,
+  ListTodo,
   Menu,
   MessageCircle,
   Moon,
@@ -86,6 +87,31 @@ export function WorkspaceShell({
         setUnreadMessages(count);
       },
       () => setUnreadMessages(0),
+    );
+  }, [user]);
+
+  // Live active exchanges count listener
+  const [activeExchangesCount, setActiveExchangesCount] = useState(0);
+
+  useEffect(() => {
+    if (!user || !db) {
+      setActiveExchangesCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, "exchanges"),
+      where("participantIds", "array-contains", user.uid),
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const count = snapshot.docs.filter((d) => {
+          const data = d.data();
+          return data["status"] === "ACTIVE";
+        }).length;
+        setActiveExchangesCount(count);
+      },
+      () => setActiveExchangesCount(0),
     );
   }, [user]);
 
@@ -252,6 +278,19 @@ export function WorkspaceShell({
                 className="workspace-top-link"
               >
                 Explore Skills
+              </Link>
+              <Link
+                to="/$section"
+                params={{ section: "exchanges" }}
+                activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
+                className="workspace-top-link inline-flex items-center gap-1.5"
+              >
+                <span>My Exchanges</span>
+                {activeExchangesCount > 0 && (
+                  <span className="rounded-full bg-primary/15 text-primary text-[10px] font-black px-1.5 py-0.2">
+                    {activeExchangesCount}
+                  </span>
+                )}
               </Link>
               <Link
                 to="/tutors"
@@ -430,6 +469,21 @@ export function WorkspaceShell({
                       <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-black text-primary">Preview</span>
                     </button>
                     <Link
+                      to="/$section"
+                      params={{ section: "exchanges" }}
+                      onClick={() => setProfileOpen(false)}
+                      className="flex items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold hover:bg-primary-soft"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ListTodo className="size-4 text-primary" /> My Exchanges & Tasks
+                      </span>
+                      {activeExchangesCount > 0 && (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-black text-primary">
+                          {activeExchangesCount}
+                        </span>
+                      )}
+                    </Link>
+                    <Link
                       to="/settings"
                       onClick={() => setProfileOpen(false)}
                       className="block rounded-xl px-3 py-2 text-sm font-semibold hover:bg-primary-soft"
@@ -514,6 +568,19 @@ export function WorkspaceShell({
                 className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
               >
                 Explore Skills
+              </Link>
+              <Link
+                to="/$section"
+                params={{ section: "exchanges" }}
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+              >
+                <span>My Exchanges</span>
+                {activeExchangesCount > 0 && (
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-white">
+                    {activeExchangesCount}
+                  </span>
+                )}
               </Link>
               <Link
                 to="/tutors"
