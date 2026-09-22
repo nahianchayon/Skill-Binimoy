@@ -37,6 +37,8 @@ type Person = {
   role?: string | undefined;
   tutorVerified?: boolean | undefined;
   premium?: boolean | undefined;
+  reviewCount?: number | undefined;
+  rating?: number | undefined;
 };
 
 type ExchangePost = {
@@ -209,7 +211,7 @@ function ExplorePage() {
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 dark:bg-emerald-950 px-3 py-1 text-xs font-black text-emerald-800 dark:text-emerald-300 mb-3">
               <Sparkles className="size-3.5" /> 100% Peer Skill Exchange · No Money Exchanged
             </span>
-            <h2 className="text-3xl font-black text-slate-950 tracking-tight sm:text-4xl">
+            <h2 className="text-3xl font-black text-slate-950 dark:text-white tracking-tight sm:text-4xl">
               Exchange what you know for what you want to learn.
             </h2>
             <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
@@ -234,48 +236,49 @@ function ExplorePage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab("members")}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+              className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold transition ${
                 activeTab === "members"
                   ? "bg-primary text-white shadow-sm"
                   : "border border-border bg-card text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Users className="size-3.5" />
-              <span>Exchange Members</span>
+              <Users className="size-4" />
+              <span>Exchange Partners</span>
               <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-black">
-                {visiblePeople.length}
+                {people.length}
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab("offers")}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition ${
+              className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold transition ${
                 activeTab === "offers"
                   ? "bg-primary text-white shadow-sm"
                   : "border border-border bg-card text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Sparkles className="size-3.5" />
-              <span>Skill Swap Offers</span>
+              <Sparkles className="size-4" />
+              <span>Skill Swap Broadcasts</span>
               <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-black">
-                {visibleOffers.length}
+                {exchangePosts.length}
               </span>
             </button>
           </div>
 
-          <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3 top-3 size-4 text-muted-foreground" />
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
+              type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by skill (React, Python, Design) or name..."
-              className="h-10 w-full rounded-xl border border-input bg-card pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="Search by skill name (e.g. Python, Design)..."
+              className="h-9 w-full sm:w-72 rounded-xl border border-input bg-card pl-9 pr-3 text-xs outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
         </div>
 
         {notice && (
-          <div className="flex items-center justify-between rounded-xl bg-primary-soft p-4 text-xs font-bold text-primary">
+          <div className="flex items-center justify-between rounded-2xl bg-primary/10 border border-primary/20 p-4 text-xs font-semibold text-primary">
             <span>{notice}</span>
             <button onClick={() => setNotice("")} className="text-primary hover:opacity-75">
               <X className="size-4" />
@@ -289,7 +292,7 @@ function ExplorePage() {
             {visiblePeople.length === 0 ? (
               <div className="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
                 <Users className="mx-auto size-10 text-primary/40 mb-3" />
-                <h3 className="text-lg font-black text-slate-950">No exchange partners found</h3>
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">No exchange partners found</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Try searching with another skill keyword or clear the search filter.
                 </p>
@@ -324,7 +327,7 @@ function ExplorePage() {
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <h3 className="truncate text-base font-black text-slate-950 group-hover:text-primary transition">
+                            <h3 className="truncate text-base font-black text-slate-950 dark:text-white group-hover:text-primary transition">
                               {person.displayName || "Skill Binimoy Member"}
                             </h3>
                             {(person.tutorVerified || person.premium) && (
@@ -338,78 +341,74 @@ function ExplorePage() {
                             {person.location || "Bangladesh"}
                           </p>
                           <span className="text-xs font-extrabold text-primary hover:underline mt-0.5 inline-block">
-                            View public profile →
+                            View Full Profile →
                           </span>
                         </div>
                       </div>
 
                       {/* Bio */}
-                      <p className="mt-3.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300 line-clamp-2">
-                        {person.bio || "Open to mutual peer skill swaps."}
+                      <p className="mt-4 text-xs leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-3">
+                        {person.bio || "Passionate learner eager to exchange practical skills with others."}
                       </p>
 
-                      {/* High Contrast Skills Section */}
-                      <div className="mt-5 space-y-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-4 border border-slate-200 dark:border-slate-800 shadow-2xs">
-                        {/* Can Teach */}
+                      {/* Skills Matrix */}
+                      <div className="mt-5 space-y-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-3.5 border border-border">
                         <div>
-                          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-2">
-                            <Sparkles className="size-3.5" /> Can Teach (Offered):
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                            Can Teach / Offer:
+                          </span>
+                          <div className="mt-1 flex flex-wrap gap-1">
                             {offered.length > 0 ? (
-                              offered.map((skill) => (
+                              offered.slice(0, 4).map((s) => (
                                 <span
-                                  key={skill}
-                                  className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs"
+                                  key={s}
+                                  className="rounded-lg bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
                                 >
-                                  {skill}
+                                  {s}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs text-muted-foreground italic">
-                                General mentorship & discussion
-                              </span>
+                              <span className="text-xs text-muted-foreground">General Mentorship</span>
                             )}
                           </div>
                         </div>
 
-                        {/* Wants to Learn */}
-                        <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
-                          <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-700 dark:text-amber-400 mb-2">
-                            <BookOpen className="size-3.5" /> Wants to Learn (Desired):
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
+                        <div>
+                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                            Wants to Learn:
+                          </span>
+                          <div className="mt-1 flex flex-wrap gap-1">
                             {wanted.length > 0 ? (
-                              wanted.map((skill) => (
+                              wanted.slice(0, 4).map((s) => (
                                 <span
-                                  key={skill}
-                                  className="rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2.5 py-1 text-xs font-extrabold text-amber-800 dark:text-amber-300 shadow-2xs"
+                                  key={s}
+                                  className="rounded-lg bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
                                 >
-                                  {skill}
+                                  {s}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs text-muted-foreground italic">
-                                Open to exploring new topics
-                              </span>
+                              <span className="text-xs text-muted-foreground">Open to all skills</span>
                             )}
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Action Button */}
-                    <div className="mt-5 pt-3.5 border-t border-border">
+                    <div className="mt-5 pt-4 border-t border-border flex items-center justify-between gap-3">
+                      <div className="text-xs text-muted-foreground">
+                        <span className="font-bold text-foreground">
+                          {person.reviewCount || 0}
+                        </span>{" "}
+                        exchanges ·{" "}
+                        <span className="font-bold text-amber-500">★ {person.rating || "5.0"}</span>
+                      </div>
+
                       <button
-                        onClick={() => {
-                          setSelectedPerson(person);
-                          setRequestMessage(
-                            `Hi ${person.displayName || ""}, I would love to do a skill swap with you! I can help you with what I know, and learn ${person.skillsOffered?.[0] ? `“${person.skillsOffered[0]}”` : "from you"}.`,
-                          );
-                        }}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-extrabold text-white shadow-xs transition hover:bg-primary-hover active:scale-98 cursor-pointer"
+                        onClick={() => setSelectedPerson(person)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-95"
                       >
-                        <Send className="size-3.5" /> Send Exchange Request
+                        <Send className="size-3.5" /> Exchange
                       </button>
                     </div>
                   </article>
@@ -425,7 +424,7 @@ function ExplorePage() {
             {visibleOffers.length === 0 ? (
               <div className="md:col-span-2 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
                 <Sparkles className="mx-auto size-10 text-primary/40 mb-3" />
-                <h3 className="text-lg font-black text-slate-950">No skill swap offers posted yet</h3>
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">No skill swap offers posted yet</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Be the first to post a skill barter request to the community!
                 </p>
@@ -660,7 +659,7 @@ function ExplorePage() {
                     </span>
                   )}
                   <div>
-                    <h3 className="font-black text-base text-slate-950">
+                    <h3 className="font-black text-base text-slate-950 dark:text-white">
                       Swap Skills with {selectedPerson.displayName || "Member"}
                     </h3>
                     <p className="text-xs text-muted-foreground">
@@ -728,7 +727,7 @@ function ExplorePage() {
             <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-black text-lg text-slate-950">Post a Skill Swap Offer</h3>
+                  <h3 className="font-black text-lg text-slate-950 dark:text-white">Post a Skill Swap Offer</h3>
                   <p className="text-xs text-muted-foreground">
                     Broadcast your mutual skill exchange to the community.
                   </p>

@@ -81,15 +81,15 @@ function BecomeTutorPage() {
     <WorkspaceShell title="Become a tutor" eyebrow="Share your expertise">
       <div className="mx-auto max-w-5xl space-y-8">
         <section className="tutor-apply-hero">
-          <div className="grid size-14 place-items-center rounded-2xl bg-white text-primary">
+          <div className="grid size-14 place-items-center rounded-2xl bg-white dark:bg-slate-800 text-primary">
             <GraduationCap className="size-7" />
           </div>
           <div>
             <p className="eyebrow text-primary">Teach what you know</p>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">
+            <h2 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
               Turn your experience into someone else's breakthrough.
             </h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
               Verified tutors build reputation, help learners make progress, and shape the culture
               of Skill Binimoy.
             </p>

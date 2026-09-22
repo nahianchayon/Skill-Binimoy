@@ -107,10 +107,10 @@ function SettingsPage() {
           </div>
           <div>
             <p className="eyebrow text-primary">Your public profile</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-950">
+            <h2 className="mt-1 text-2xl font-black text-slate-950 dark:text-white">
               Make it easier for the right people to find you.
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
               A complete profile earns better matches and builds trust.
             </p>
           </div>

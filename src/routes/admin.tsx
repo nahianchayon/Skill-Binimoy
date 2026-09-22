@@ -400,10 +400,10 @@ function AdminPage() {
           <section className="admin-hero">
             <div>
               <p className="eyebrow text-primary">Operations overview</p>
-              <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950">
+              <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-950 dark:text-white">
                 Manage members, tutors, safety, and shop.
               </h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
                 Review tutor applications with full background details, manage user safety, approve
                 products, and fulfill orders.
               </p>
@@ -452,7 +452,7 @@ function AdminPage() {
                   <BadgeCheck className="size-5" />
                 </span>
                 <div>
-                  <h2 className="text-xl font-black text-slate-950">Tutor Applications</h2>
+                  <h2 className="text-xl font-black text-slate-950 dark:text-white">Tutor Applications</h2>
                   <p className="text-xs text-muted-foreground">
                     Inspect applicant qualifications, rate, and experience before deciding.
                   </p>
@@ -518,7 +518,7 @@ function AdminPage() {
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-base font-bold text-slate-950 truncate">{name}</h3>
+                            <h3 className="text-base font-bold text-slate-950 dark:text-white truncate">{name}</h3>
                             <span
                               className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${
                                 app.status === "APPROVED"
@@ -532,7 +532,7 @@ function AdminPage() {
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground">{email}</p>
-                          <p className="mt-1 text-xs font-medium text-slate-600 line-clamp-1">
+                          <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300 line-clamp-1">
                             {app.education ? `🎓 ${app.education}` : ""} {app.experience ? `· 💼 ${app.experience}` : ""}
                           </p>
                           {skills.length > 0 && (
@@ -589,7 +589,7 @@ function AdminPage() {
                   <Users className="size-5" />
                 </span>
                 <div>
-                  <h2 className="text-xl font-black text-slate-950">User Management</h2>
+                  <h2 className="text-xl font-black text-slate-950 dark:text-white">User Management</h2>
                   <p className="text-xs text-muted-foreground">
                     Search and manage roles, suspension, and permissions across all members.
                   </p>
@@ -639,7 +639,7 @@ function AdminPage() {
                             )}
                             <div>
                               <div className="flex items-center gap-1.5">
-                                <p className="font-bold text-slate-950">
+                                <p className="font-bold text-slate-950 dark:text-white">
                                   {u.displayName || "Unnamed member"}
                                 </p>
                                 {(u.premium || u.tutorVerified) && (
@@ -1061,7 +1061,7 @@ function AdminPage() {
                     </span>
                   )}
                   <div>
-                    <h3 className="text-xl font-black text-slate-950">
+                    <h3 className="text-xl font-black text-slate-950 dark:text-white">
                       {selectedApplication.displayName || selectedApplication.name || "Tutor Applicant"}
                     </h3>
                     <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -1194,7 +1194,7 @@ function AdminPage() {
         {rejectionModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
             <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
-              <h3 className="text-lg font-black text-slate-950">
+              <h3 className="text-lg font-black text-slate-950 dark:text-white">
                 Decline Tutor Application
               </h3>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1275,7 +1275,7 @@ function AdminPanel({
           <span className="admin-panel-icon">
             <Icon className="size-4" />
           </span>
-          <h2 className="text-lg font-black text-slate-950">{title}</h2>
+          <h2 className="text-lg font-black text-slate-950 dark:text-white">{title}</h2>
         </div>
         <button className="text-xs font-bold text-primary hover:underline">
           {action} <ArrowSmall />
@@ -1291,5 +1291,5 @@ function ArrowSmall() {
 }
 
 function AdminEmpty({ text }: { text: string }) {
-  return <div className="py-7 text-center text-sm text-slate-500">{text}</div>;
+  return <div className="py-7 text-center text-sm text-slate-500 dark:text-slate-400">{text}</div>;
 }

@@ -362,19 +362,71 @@ function MessagesPage() {
   });
 
   async function handleToggleInboxTask(task: ExchangeTask) {
-    if (!activeExchangeId || !user) return;
-    await toggleExchangeTaskCompletion({
-      exchangeId: activeExchangeId,
-      taskId: task.id,
-      completed: !task.completed,
-      completedBy: user.uid,
-    });
+    if (!user) return;
+    const exchangeIdToUse = activeExchangeId || task.exchangeId;
+    if (!exchangeIdToUse) return;
+
+    const nextCompleted = !task.completed;
+    // 1. Optimistic local update so UI toggles instantly
+    setActiveTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              completed: nextCompleted,
+              status: nextCompleted ? "COMPLETED" : "PENDING",
+            }
+          : t,
+      ),
+    );
+
+    try {
+      await toggleExchangeTaskCompletion({
+        exchangeId: exchangeIdToUse,
+        taskId: task.id,
+        completed: nextCompleted,
+        completedBy: user.uid,
+      });
+    } catch (err) {
+      console.error("Failed to toggle task:", err);
+      // Rollback on error
+      setActiveTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, completed: task.completed, status: task.status }
+            : t,
+        ),
+      );
+      setNotice("Could not update task status. Please check your connection.");
+    }
   }
 
   async function handleAddInboxTask(e: React.FormEvent) {
     e.preventDefault();
-    if (!activeExchangeId || !user || !newTaskTitle.trim()) return;
+    if (!user || !newTaskTitle.trim()) return;
 
+    let targetExchangeId = activeExchangeId;
+    if (!targetExchangeId && selected && selectedPartner?.partnerId) {
+      targetExchangeId = await getOrCreateExchangeForUsers({
+        currentUserId: user.uid,
+        currentUserName: profile?.displayName || user.displayName || "Member",
+        currentUserPhoto: profile?.photoURL || user.photoURL,
+        partnerId: selectedPartner.partnerId,
+        partnerName: selectedPartner.name,
+        partnerPhoto: selectedPartner.photoURL,
+        conversationId: selected.id,
+      });
+      if (targetExchangeId) {
+        setActiveExchangeId(targetExchangeId);
+      }
+    }
+
+    if (!targetExchangeId) {
+      setNotice("Active exchange not found yet. Please wait a moment or send a message.");
+      return;
+    }
+
+    const title = newTaskTitle.trim();
     let assigneeName = "Both Members";
     if (selectedPartner) {
       if (newTaskAssignee === user.uid) {
@@ -384,26 +436,56 @@ function MessagesPage() {
       }
     }
 
-    await createExchangeTask({
-      exchangeId: activeExchangeId,
-      title: newTaskTitle.trim(),
+    // Optimistic task creation
+    const tempId = `temp_${Date.now()}`;
+    const optimisticTask: ExchangeTask = {
+      id: tempId,
+      exchangeId: targetExchangeId,
+      title,
       createdBy: user.uid,
       createdByName: profile?.displayName || user.displayName || "Member",
       assignedTo: newTaskAssignee,
       assignedToName: assigneeName,
-    });
+      status: "PENDING",
+      completed: false,
+      createdAt: new Date(),
+    };
 
+    setActiveTasks((prev) => [...prev, optimisticTask]);
     setNewTaskTitle("");
     setIsAddingTask(false);
+
+    try {
+      await createExchangeTask({
+        exchangeId: targetExchangeId,
+        title,
+        createdBy: user.uid,
+        createdByName: profile?.displayName || user.displayName || "Member",
+        assignedTo: newTaskAssignee,
+        assignedToName: assigneeName,
+      });
+    } catch (err) {
+      console.error("Failed to add task:", err);
+      setActiveTasks((prev) => prev.filter((t) => t.id !== tempId));
+      setNotice("Failed to save new task. Please try again.");
+    }
   }
 
   async function handleDeleteInboxTask(taskId: string, title: string) {
-    if (!activeExchangeId) return;
+    const exchangeIdToUse = activeExchangeId;
+    if (!exchangeIdToUse) return;
     if (window.confirm(`Delete task "${title}"?`)) {
-      await deleteExchangeTask({
-        exchangeId: activeExchangeId,
-        taskId,
-      });
+      // Optimistic delete
+      setActiveTasks((prev) => prev.filter((t) => t.id !== taskId));
+      try {
+        await deleteExchangeTask({
+          exchangeId: exchangeIdToUse,
+          taskId,
+        });
+      } catch (err) {
+        console.error("Failed to delete task:", err);
+        setNotice("Failed to delete task.");
+      }
     }
   }
 
@@ -738,7 +820,7 @@ function MessagesPage() {
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "ALL"
                                 ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 hover:text-slate-800"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
                             }`}
                           >
                             All ({totalTasks})
@@ -749,7 +831,7 @@ function MessagesPage() {
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "PENDING"
                                 ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 hover:text-slate-800"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
                             }`}
                           >
                             Pending ({totalTasks - completedTasks})
@@ -760,7 +842,7 @@ function MessagesPage() {
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "COMPLETED"
                                 ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 hover:text-slate-800"
+                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
                             }`}
                           >
                             Done ({completedTasks})

@@ -172,10 +172,10 @@ function ShopPage() {
         <section className="shop-hero">
           <div>
             <p className="eyebrow text-primary">Community goods</p>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">
+            <h2 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
               Carry the spirit of learning with you.
             </h2>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
               Small-batch essentials for people who learn boldly, teach generously, and make things
               together. Track every order from packing to doorstep delivery.
             </p>
@@ -254,7 +254,7 @@ function ShopPage() {
               {products.length === 0 ? (
                 <div className="sm:col-span-2 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
                   <Package className="mx-auto size-10 text-primary" />
-                  <h3 className="mt-3 font-black text-lg text-slate-950">
+                  <h3 className="mt-3 font-black text-lg text-slate-950 dark:text-white">
                     The store is currently preparing stock
                   </h3>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -287,7 +287,7 @@ function ShopPage() {
                       <div className="p-5 flex-1 flex flex-col justify-between">
                         <div>
                           <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-base font-black text-slate-950 leading-snug">
+                            <h3 className="text-base font-black text-slate-950 dark:text-white leading-snug">
                               {product.name}
                             </h3>
                             <strong className="text-base font-black text-primary shrink-0">
@@ -295,7 +295,7 @@ function ShopPage() {
                             </strong>
                           </div>
 
-                          <p className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-2">
+                          <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-2">
                             {product.description || "A Skill Binimoy community product."}
                           </p>
                         </div>
@@ -325,7 +325,7 @@ function ShopPage() {
               <div className="flex items-center justify-between border-b border-border pb-4">
                 <div className="flex items-center gap-2">
                   <ShoppingBag className="size-5 text-primary" />
-                  <h2 className="text-base font-black text-slate-950">Your Shopping Cart</h2>
+                  <h2 className="text-base font-black text-slate-950 dark:text-white">Your Shopping Cart</h2>
                 </div>
                 <span className="rounded-full bg-primary-soft px-2.5 py-1 text-xs font-black text-primary">
                   {cart.reduce((s, it) => s + it.quantity, 0)} items
@@ -348,7 +348,7 @@ function ShopPage() {
                         <Package className="size-5" />
                       </span>
                       <span className="min-w-0 flex-1 text-xs">
-                        <strong className="block truncate font-bold text-slate-950">
+                        <strong className="block truncate font-bold text-slate-950 dark:text-white">
                           {item.name}
                         </strong>
                         <span className="text-muted-foreground">
@@ -368,7 +368,7 @@ function ShopPage() {
                   ))}
 
                   <div className="border-t border-border pt-4">
-                    <div className="flex justify-between text-base font-black text-slate-950">
+                    <div className="flex justify-between text-base font-black text-slate-950 dark:text-white">
                       <span>Total</span>
                       <span className="text-primary">৳{total}</span>
                     </div>
@@ -392,7 +392,7 @@ function ShopPage() {
             {filteredOrders.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-border bg-card p-12 text-center">
                 <Truck className="mx-auto size-12 text-primary/40 mb-3" />
-                <h3 className="text-lg font-black text-slate-950">No orders found</h3>
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">No orders found</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {orderSearch
                     ? "No orders match your search keyword."
@@ -462,7 +462,7 @@ function ShopPage() {
 
                       <div className="text-left sm:text-right">
                         <span className="text-xs text-muted-foreground">Total Amount</span>
-                        <p className="text-lg font-black text-slate-950">৳{order.total || 0}</p>
+                        <p className="text-lg font-black text-slate-950 dark:text-white">৳{order.total || 0}</p>
                         <span className="text-[11px] font-bold text-muted-foreground">
                           Paid via {order.paymentMethod || "bKash"}
                         </span>
@@ -556,7 +556,7 @@ function ShopPage() {
                         {(order.items || []).map((it, idx) => (
                           <div
                             key={idx}
-                            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-bold text-slate-950"
+                            className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-bold text-slate-950 dark:text-white"
                           >
                             <Package className="size-3.5 text-primary" />
                             <span>{it.name}</span>
@@ -580,7 +580,7 @@ function ShopPage() {
             <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-black text-lg text-slate-950">Store Checkout</h3>
+                  <h3 className="font-black text-lg text-slate-950 dark:text-white">Store Checkout</h3>
                   <p className="text-xs text-muted-foreground">
                     Total Amount: <span className="font-bold text-primary">৳{total}</span> ({cart.length} items)
                   </p>

@@ -910,10 +910,10 @@ function SectionPage() {
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 dark:bg-amber-950/60 px-3 py-1 text-xs font-black text-amber-700 dark:text-amber-400">
                     <Crown className="size-4" /> Official Verification Program
                   </span>
-                  <h2 className="mt-3 text-2xl sm:text-3xl font-black text-slate-950">
+                  <h2 className="mt-3 text-2xl sm:text-3xl font-black text-slate-950 dark:text-white">
                     Skill Binimoy Verified ID & Pro
                   </h2>
-                  <p className="mt-2 text-xs sm:text-sm text-slate-600 max-w-xl">
+                  <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-xl">
                     Get the trusted <strong>blue verified checkmark</strong> badge on your profile,
                     gain priority listing on Explore skills, and unlock 1-on-1 live video tutoring.
                   </p>
@@ -944,10 +944,10 @@ function SectionPage() {
                       {label}
                     </span>
                     <div className="mt-4 flex items-baseline gap-1">
-                      <span className="text-4xl font-black text-slate-950">{price}</span>
+                      <span className="text-4xl font-black text-slate-950 dark:text-white">{price}</span>
                       <span className="text-xs text-muted-foreground">{duration}</span>
                     </div>
-                    <ul className="mt-5 space-y-2.5 text-xs text-slate-600">
+                    <ul className="mt-5 space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
                       <li className="flex items-center gap-2">
                         <Check className="size-4 text-emerald-600 shrink-0" />
                         <strong>Verified ID checkmark</strong> on profile & directory
@@ -989,7 +989,7 @@ function SectionPage() {
                 <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-black text-lg text-slate-950">
+                      <h3 className="font-black text-lg text-slate-950 dark:text-white">
                         Simulated Payment Checkout
                       </h3>
                       <p className="text-xs text-muted-foreground">
@@ -1205,7 +1205,7 @@ function SectionPage() {
             {/* Support/Safety Ticket Form */}
             {["support", "safety"].includes(section) && (
               <form onSubmit={submit} className="rounded-3xl border border-border bg-card p-6 shadow-card">
-                <h2 className="text-lg font-black text-slate-950">
+                <h2 className="text-lg font-black text-slate-950 dark:text-white">
                   {section === "support" ? "Open a Support Ticket" : "Report a Safety Concern"}
                 </h2>
                 <div className="mt-4 grid gap-3">

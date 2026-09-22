@@ -123,18 +123,45 @@ export function ExchangeWorkspaceCard({
 
   async function handleToggle(task: ExchangeTask) {
     const nextCompleted = !task.completed;
-    await toggleExchangeTaskCompletion({
-      exchangeId: exchange.id,
-      taskId: task.id,
-      completed: nextCompleted,
-      completedBy: currentUserId,
-    });
+    // 1. Optimistic update
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              completed: nextCompleted,
+              status: nextCompleted ? "COMPLETED" : "PENDING",
+            }
+          : t,
+      ),
+    );
+
+    try {
+      await toggleExchangeTaskCompletion({
+        exchangeId: exchange.id,
+        taskId: task.id,
+        completed: nextCompleted,
+        completedBy: currentUserId,
+      });
+    } catch (err) {
+      console.error("Failed to toggle task:", err);
+      // Rollback
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === task.id
+            ? { ...t, completed: task.completed, status: task.status }
+            : t,
+        ),
+      );
+    }
   }
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
+    const title = newTaskTitle.trim();
+    const dueDate = newTaskDueDate || undefined;
     let assigneeName = "Both Members";
     if (newTaskAssignee === currentUserId) {
       assigneeName = currentUserName || "You";
@@ -142,27 +169,55 @@ export function ExchangeWorkspaceCard({
       assigneeName = partnerName;
     }
 
-    await createExchangeTask({
+    // 1. Optimistic task add
+    const tempId = `temp_${Date.now()}`;
+    const optimisticTask: ExchangeTask = {
+      id: tempId,
       exchangeId: exchange.id,
-      title: newTaskTitle.trim(),
+      title,
       createdBy: currentUserId,
       createdByName: currentUserName || "Member",
       assignedTo: newTaskAssignee,
       assignedToName: assigneeName,
-      dueDate: newTaskDueDate || undefined,
-    });
+      status: "PENDING",
+      completed: false,
+      dueDate,
+      createdAt: new Date(),
+    };
 
+    setTasks((prev) => [...prev, optimisticTask]);
     setNewTaskTitle("");
     setNewTaskDueDate("");
     setIsAddingTask(false);
+
+    try {
+      await createExchangeTask({
+        exchangeId: exchange.id,
+        title,
+        createdBy: currentUserId,
+        createdByName: currentUserName || "Member",
+        assignedTo: newTaskAssignee,
+        assignedToName: assigneeName,
+        dueDate,
+      });
+    } catch (err) {
+      console.error("Failed to add task:", err);
+      setTasks((prev) => prev.filter((t) => t.id !== tempId));
+    }
   }
 
   async function handleDeleteTask(taskId: string, title: string) {
     if (window.confirm(`Delete task "${title}"?`)) {
-      await deleteExchangeTask({
-        exchangeId: exchange.id,
-        taskId,
-      });
+      // Optimistic delete
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      try {
+        await deleteExchangeTask({
+          exchangeId: exchange.id,
+          taskId,
+        });
+      } catch (err) {
+        console.error("Failed to delete task:", err);
+      }
     }
   }
 

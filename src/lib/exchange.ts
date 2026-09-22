@@ -156,18 +156,22 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
     updatePayload["status"] = "ACTIVE";
   }
 
-  await updateDoc(exchangeRef, updatePayload);
+  try {
+    await updateDoc(exchangeRef, updatePayload);
 
-  // Also update linked conversation if present
-  if (exchangeSnap.exists()) {
-    const convId = exchangeSnap.data()["conversationId"] as string | undefined;
-    if (convId) {
-      await updateDoc(doc(database, "conversations", convId), {
-        exchangeProgress: progress,
-        exchangeTasksCompleted: completedTasks,
-        exchangeTasksTotal: totalTasks,
-      }).catch(console.warn);
+    // Also update linked conversation if present
+    if (exchangeSnap.exists()) {
+      const convId = exchangeSnap.data()["conversationId"] as string | undefined;
+      if (convId) {
+        await updateDoc(doc(database, "conversations", convId), {
+          exchangeProgress: progress,
+          exchangeTasksCompleted: completedTasks,
+          exchangeTasksTotal: totalTasks,
+        }).catch(console.warn);
+      }
     }
+  } catch (err) {
+    console.warn("Failed to update exchange progress metadata:", err);
   }
 
   return { totalTasks, completedTasks, progress };
@@ -545,7 +549,7 @@ export async function createExchangeTask({
     updatedAt: serverTimestamp(),
   });
 
-  await recalculateExchangeProgress(exchangeId);
+  void recalculateExchangeProgress(exchangeId);
 }
 
 /**
@@ -574,7 +578,7 @@ export async function toggleExchangeTaskCompletion({
   };
 
   await updateDoc(doc(database, "exchanges", exchangeId, "tasks", taskId), updateData);
-  await recalculateExchangeProgress(exchangeId);
+  void recalculateExchangeProgress(exchangeId);
 }
 
 /**
@@ -591,7 +595,7 @@ export async function deleteExchangeTask({
   if (!exchangeId || !taskId) return;
 
   await deleteDoc(doc(database, "exchanges", exchangeId, "tasks", taskId));
-  await recalculateExchangeProgress(exchangeId);
+  void recalculateExchangeProgress(exchangeId);
 }
 
 /**

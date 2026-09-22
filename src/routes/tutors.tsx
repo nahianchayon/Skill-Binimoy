@@ -284,10 +284,10 @@ function TutorsPage() {
         <section className="tutors-hero">
           <div>
             <p className="eyebrow text-primary">Verified teaching community</p>
-            <h2 className="mt-2 text-3xl font-black text-slate-950">
+            <h2 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">
               Find someone who has done the work.
             </h2>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600">
+            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
               Browse verified tutors, view the exact skills they offer, compare experience, and book
               a focused session around your goal.
             </p>
@@ -486,7 +486,7 @@ function TutorsPage() {
                     </span>
                   )}
                   <div>
-                    <h3 className="font-black text-base text-slate-950">
+                    <h3 className="font-black text-base text-slate-950 dark:text-white">
                       Book Session with {bookingTutor.displayName || "Tutor"}
                     </h3>
                     <p className="text-xs text-primary font-bold">

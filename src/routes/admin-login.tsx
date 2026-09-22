@@ -42,7 +42,7 @@ function AdminLoginPage() {
 
   return (
     <main className="admin-login-page flex min-h-dvh items-center justify-center px-5 py-12">
-      <section className="w-full max-w-md rounded-[1.75rem] border border-white/70 bg-white p-8 shadow-card sm:p-10">
+      <section className="w-full max-w-md rounded-[1.75rem] border border-white/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 shadow-card sm:p-10">
         <Link to="/" className="text-sm font-black tracking-tight text-primary">
           Skill Binimoy
         </Link>
@@ -52,8 +52,8 @@ function AdminLoginPage() {
         <p className="mt-7 text-xs font-black uppercase tracking-[0.18em] text-primary">
           Restricted workspace
         </p>
-        <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">Admin sign in</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-500">
+        <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 dark:text-white">Admin sign in</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-slate-400">
           Use an approved Firebase account to manage the Skill Binimoy community.
         </p>
         <form onSubmit={submit} className="mt-8 space-y-4">
@@ -64,7 +64,7 @@ function AdminLoginPage() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="Admin email"
-            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
+            className="h-12 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white px-4 text-sm outline-none focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
           />
           <div className="relative">
             <LockKeyhole className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
@@ -75,24 +75,24 @@ function AdminLoginPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Password"
-              className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-11 text-sm outline-none focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
+              className="h-12 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white px-11 text-sm outline-none focus:border-primary/40 focus:ring-4 focus:ring-primary/10"
             />
           </div>
           {error && (
-            <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+            <p className="rounded-xl bg-red-50 dark:bg-red-950/50 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-300">
               {error}
             </p>
           )}
           <button
             disabled={submitting}
-            className="h-12 w-full rounded-xl bg-slate-950 text-sm font-bold text-white transition hover:bg-primary disabled:opacity-50"
+            className="h-12 w-full rounded-xl bg-slate-950 dark:bg-primary text-sm font-bold text-white transition hover:bg-primary dark:hover:bg-primary-hover disabled:opacity-50"
           >
             {submitting ? "Checking access..." : "Enter admin workspace"}
           </button>
         </form>
         <Link
           to="/login"
-          className="mt-6 block text-center text-sm font-bold text-slate-500 hover:text-primary"
+          className="mt-6 block text-center text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary"
         >
           Return to member sign in
         </Link>

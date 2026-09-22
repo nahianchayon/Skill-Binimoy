@@ -585,7 +585,7 @@ function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="eyebrow text-primary">Up next</p>
-                <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+                <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
                   A focused hour
                   <br />
                   with Tanvir
@@ -598,7 +598,7 @@ function Dashboard() {
             <div className="mt-7 flex items-center gap-3">
               <Avatar initials="TH" tone="blue" size="md" />
               <div>
-                <p className="text-sm font-bold text-slate-900">Cloud architecture foundations</p>
+                <p className="text-sm font-bold text-slate-900 dark:text-white">Cloud architecture foundations</p>
                 <p className="text-xs text-slate-500">Today · 8:00 PM – 9:00 PM</p>
               </div>
             </div>
@@ -664,12 +664,12 @@ function Dashboard() {
                     className="cursor-pointer group/title"
                   >
                     <div className="flex items-center gap-1.5">
-                      <h3 className="font-black text-slate-950 group-hover/title:text-primary transition">{mentor.name}</h3>
+                      <h3 className="font-black text-slate-950 dark:text-white group-hover/title:text-primary transition">{mentor.name}</h3>
                       <BadgeCheck className="size-4 text-primary" />
                     </div>
-                    <p className="mt-1 text-xs font-medium leading-5 text-slate-500">{mentor.role}</p>
+                    <p className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">{mentor.role}</p>
                   </div>
-                  <div className="mt-3 flex items-center gap-1 text-xs font-bold text-slate-700">
+                  <div className="mt-3 flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-300">
                     <Star className="size-3.5 fill-amber-400 text-amber-400" /> {mentor.rating}{" "}
                     <span className="font-medium text-slate-400">({mentor.reviews})</span>
                   </div>
@@ -680,7 +680,7 @@ function Dashboard() {
                       </span>
                     ))}
                   </div>
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4">
                     <span className="text-xs font-semibold text-slate-400">
                       {mentor.experience}
                     </span>
@@ -710,10 +710,10 @@ function Dashboard() {
         <section className="tutor-feature">
           <div className="tutor-feature-copy">
             <p className="eyebrow text-primary">Verified tutors</p>
-            <h2 className="mt-2 max-w-md text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            <h2 className="mt-2 max-w-md text-3xl font-black tracking-tight text-slate-950 dark:text-white sm:text-4xl">
               Learn from experience, not just information.
             </h2>
-            <p className="mt-4 max-w-md text-sm leading-6 text-slate-600">
+            <p className="mt-4 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
               Book focused sessions with people who have done the work and know how to help you move
               forward.
             </p>
@@ -793,7 +793,7 @@ function Dashboard() {
           </div>
           <a
             href="#share"
-            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-slate-950 dark:bg-slate-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800 dark:hover:bg-slate-700"
           >
             <Plus className="size-4" /> Post a problem
           </a>
@@ -802,10 +802,10 @@ function Dashboard() {
         <section className="premium-strip">
           <div>
             <p className="eyebrow text-primary">Skill Binimoy Premium</p>
-            <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
               Get more from every exchange.
             </h2>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
               Be easier to find, learn faster, and get the support that keeps momentum going.
             </p>
           </div>
@@ -883,7 +883,7 @@ function Dashboard() {
                     ))}
                   </div>
                 </div>
-                <p className="mt-5 text-sm leading-6 text-slate-600">“{testimonial.quote}”</p>
+                <p className="mt-5 text-sm leading-6 text-slate-600 dark:text-slate-300">“{testimonial.quote}”</p>
               </article>
             ))}
           </div>
@@ -892,10 +892,10 @@ function Dashboard() {
         <section id="share" className="share-section">
           <div>
             <p className="eyebrow text-primary">Give back to the network</p>
-            <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950 dark:text-white">
               Share what you know
             </h2>
-            <p className="mt-2 max-w-md text-sm leading-6 text-slate-600">
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
               Turn one useful lesson into a meaningful connection.
             </p>
           </div>
