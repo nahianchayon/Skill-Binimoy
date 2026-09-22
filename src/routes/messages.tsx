@@ -12,6 +12,7 @@ import {
   Send,
   Square,
   Trash2,
+  User,
   Video,
 } from "lucide-react";
 import {
@@ -30,6 +31,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { ProtectedView } from "@/components/common/ProtectedView";
+import { ProfileModal, type ProfileData } from "@/components/profile/ProfileModal";
 import { useAuth } from "@/lib/auth";
 import { db } from "@/lib/firebase";
 import {
@@ -140,6 +142,24 @@ function MessagesPage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
   const [isAddingTask, setIsAddingTask] = useState(false);
+
+  // Partner Profile Modal State
+  const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
+
+  function handleOpenPartnerProfile(
+    partnerId: string,
+    partnerName: string,
+    partnerPhoto?: string | null | undefined,
+  ) {
+    if (!partnerId) return;
+    setViewingProfile({
+      uid: partnerId,
+      id: partnerId,
+      displayName: partnerName,
+      photoURL: partnerPhoto || null,
+      role: "MEMBER",
+    });
+  }
 
   // Auto-scroll ONLY inside the chat messages container (never scrolls the browser window)
   useEffect(() => {
@@ -496,10 +516,10 @@ function MessagesPage() {
                   return (
                     <div
                       key={conversation.id}
-                      className={`group flex items-center justify-between rounded-2xl transition ${
+                      className={`group flex items-center justify-between rounded-2xl p-1 transition border ${
                         isSelected
-                          ? "bg-primary-soft/80 dark:bg-primary/15"
-                          : "hover:bg-slate-100 dark:hover:bg-slate-800/60"
+                          ? "bg-primary/10 dark:bg-primary/20 border-primary/40 dark:border-primary/50 shadow-xs"
+                          : "border-transparent hover:border-slate-200 dark:hover:border-slate-800 hover:bg-slate-100/80 dark:hover:bg-slate-800/80"
                       }`}
                     >
                       <button
@@ -507,24 +527,27 @@ function MessagesPage() {
                         onClick={() => setSelected(conversation)}
                         className="conversation-item relative flex-1 min-w-0"
                       >
-                        {partner.photoURL ? (
-                          <img
-                            src={partner.photoURL}
-                            alt={partner.name}
-                            className="size-10 rounded-full object-cover shrink-0"
-                          />
-                        ) : (
-                          <span className="conversation-avatar shrink-0">{partner.initials}</span>
-                        )}
+                        <div className="relative shrink-0">
+                          {partner.photoURL ? (
+                            <img
+                              src={partner.photoURL}
+                              alt={partner.name}
+                              className="size-11 rounded-full object-cover ring-2 ring-primary/25 dark:ring-primary/45 shadow-xs"
+                            />
+                          ) : (
+                            <span className="conversation-avatar shrink-0 size-11 ring-2 ring-primary/25 dark:ring-primary/45 font-black text-xs text-primary dark:text-blue-300 bg-primary/10 dark:bg-primary/25">{partner.initials}</span>
+                          )}
+                          <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+                        </div>
                         <span className="min-w-0 flex-1 text-left">
-                          <strong className="flex items-center justify-between">
-                            <span className="truncate">{partner.name}</span>
+                          <strong className="flex items-center justify-between text-slate-900 dark:text-white font-extrabold text-sm">
+                            <span className="truncate text-slate-900 dark:text-white group-hover:text-primary transition">{partner.name}</span>
                             {hasUnread && (
-                              <span className="size-2.5 rounded-full bg-primary shrink-0" />
+                              <span className="size-2.5 rounded-full bg-primary ring-2 ring-white dark:ring-slate-900 shrink-0" />
                             )}
                           </strong>
                           <small
-                            className={`truncate block ${hasUnread ? "font-bold text-slate-900 dark:text-white" : ""}`}
+                            className={`truncate block text-xs mt-0.5 ${hasUnread ? "font-bold text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-300"}`}
                           >
                             {typeof conversation.lastMessage === "string"
                               ? conversation.lastMessage
@@ -533,19 +556,32 @@ function MessagesPage() {
                         </span>
                       </button>
 
-                      {/* Quick Video Call action button in sidebar */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelected(conversation);
-                          void startVideoCall(conversation);
-                        }}
-                        className="mr-2 flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 opacity-80 sm:opacity-0 group-hover:opacity-100 hover:bg-primary hover:text-white transition cursor-pointer"
-                        title={`Start Video Call with ${partner.name}`}
-                      >
-                        <Video className="size-4" />
-                      </button>
+                      {/* Quick Profile & Video Call action buttons in sidebar */}
+                      <div className="flex items-center gap-1 mr-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenPartnerProfile(partner.partnerId, partner.name, partner.photoURL);
+                          }}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 dark:text-slate-300 opacity-80 sm:opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+                          title={`View ${partner.name}'s Profile`}
+                        >
+                          <User className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelected(conversation);
+                            void startVideoCall(conversation);
+                          }}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 dark:text-slate-300 opacity-80 sm:opacity-0 group-hover:opacity-100 hover:bg-primary hover:text-white transition cursor-pointer"
+                          title={`Start Video Call with ${partner.name}`}
+                        >
+                          <Video className="size-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -558,32 +594,53 @@ function MessagesPage() {
               <>
                 {/* Chat Partner Header */}
                 <div className="chat-header sticky top-0 z-20 flex items-center justify-between shrink-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-3 border-b border-slate-200/80 dark:border-slate-800/80 shadow-xs">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {selectedPartner.photoURL ? (
-                      <img
-                        src={selectedPartner.photoURL}
-                        alt={selectedPartner.name}
-                        className="size-10 rounded-full object-cover shrink-0"
-                      />
-                    ) : (
-                      <span className="conversation-avatar shrink-0">{selectedPartner.initials}</span>
-                    )}
+                  <div
+                    onClick={() => handleOpenPartnerProfile(selectedPartner.partnerId, selectedPartner.name, selectedPartner.photoURL)}
+                    className="flex items-center gap-3 min-w-0 cursor-pointer group p-1 -m-1 rounded-2xl hover:bg-slate-100/70 dark:hover:bg-slate-800/70 transition"
+                    title={`Click to view ${selectedPartner.name}'s profile`}
+                  >
+                    <div className="relative shrink-0">
+                      {selectedPartner.photoURL ? (
+                        <img
+                          src={selectedPartner.photoURL}
+                          alt={selectedPartner.name}
+                          className="size-11 rounded-full object-cover ring-2 ring-primary/30 dark:ring-primary/50 shadow-xs group-hover:ring-primary transition"
+                        />
+                      ) : (
+                        <span className="conversation-avatar size-11 ring-2 ring-primary/30 dark:ring-primary/50 font-black text-xs text-primary dark:text-blue-300 bg-primary/10 dark:bg-primary/25 shrink-0 group-hover:ring-primary transition">{selectedPartner.initials}</span>
+                      )}
+                      <span className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+                    </div>
                     <div className="min-w-0">
-                      <strong className="truncate block">{selectedPartner.name}</strong>
-                      <small className="flex items-center gap-1.5 text-emerald-600 font-semibold">
-                        <span className="inline-block size-2 rounded-full bg-emerald-500" />
+                      <strong className="truncate block text-slate-900 dark:text-white font-extrabold text-sm sm:text-base group-hover:text-primary transition flex items-center gap-1.5">
+                        {selectedPartner.name}
+                      </strong>
+                      <small className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span className="inline-block size-2 rounded-full bg-emerald-500 animate-pulse" />
                         Live skill partner
+                        <span className="text-[11px] text-primary dark:text-blue-400 font-semibold group-hover:underline ml-1">
+                          · View Profile
+                        </span>
                       </small>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={() => handleOpenPartnerProfile(selectedPartner.partnerId, selectedPartner.name, selectedPartner.photoURL)}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-100/80 dark:bg-slate-800 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shadow-2xs"
+                      title={`View ${selectedPartner.name}'s Profile`}
+                    >
+                      <User className="size-3.5" />
+                      <span className="hidden md:inline">Profile</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setIsTodoExpanded(!isTodoExpanded)}
                       className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition cursor-pointer border ${
                         isTodoExpanded
                           ? "bg-primary text-white border-primary shadow-xs"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                          : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
                       }`}
                       title="Toggle Shared Todo List"
                     >
@@ -950,8 +1007,8 @@ function MessagesPage() {
             ) : (
               <div className="m-auto text-center p-8">
                 <MessageCircle className="mx-auto size-10 text-primary/30" />
-                <h2 className="mt-3 font-black">Your conversations live here</h2>
-                <p className="mt-2 text-sm text-slate-500">
+                <h2 className="mt-3 font-black text-slate-900 dark:text-white">Your conversations live here</h2>
+                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                   Accept an exchange request to connect with peers and mentors.
                 </p>
               </div>
@@ -962,6 +1019,14 @@ function MessagesPage() {
           <p className="mt-4 rounded-xl bg-primary-soft px-4 py-3 text-sm font-semibold text-primary">
             {notice}
           </p>
+        )}
+
+        {/* Full Partner Profile Preview Modal */}
+        {viewingProfile && (
+          <ProfileModal
+            profile={viewingProfile}
+            onClose={() => setViewingProfile(null)}
+          />
         )}
       </WorkspaceShell>
     </ProtectedView>

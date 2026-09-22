@@ -1763,16 +1763,17 @@
 }
 .conversation-item strong {
   overflow: hidden;
-  color: #1b2e48;
-  font-size: 0.72rem;
+  color: #0f172a;
+  font-size: 0.85rem;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .conversation-item small {
   margin-top: 0.2rem;
   overflow: hidden;
-  color: #8996a7;
-  font-size: 0.62rem;
+  color: #64748b;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2063,5 +2064,62 @@
   color: #ffffff !important;
   background-color: oklch(0.28 0.035 262) !important;
 }
+
+/* Realtime Messaging Dark Mode & Chat People Profiles Visibility */
+.dark .messages-layout {
+  background-color: oklch(0.20 0.028 262) !important;
+  border-color: oklch(1 0 0 / 12%) !important;
+}
+
+.dark .conversation-list {
+  background-color: oklch(0.20 0.025 262) !important;
+  border-color: oklch(1 0 0 / 12%) !important;
+}
+
+.dark .conversation-item {
+  color: #f8fafc !important;
+}
+
+.dark .conversation-item strong {
+  color: #ffffff !important;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.dark .conversation-item small {
+  color: #94a3b8 !important;
+  font-size: 0.75rem;
+}
+
+.dark .conversation-item:hover {
+  background-color: oklch(0.28 0.035 262 / 70%) !important;
+}
+
+.dark .conversation-avatar {
+  background-color: oklch(0.32 0.08 260) !important;
+  color: #93c5fd !important;
+  box-shadow: 0 0 0 2px oklch(0.5 0.15 260 / 45%);
+}
+
+.dark .chat-header {
+  background-color: oklch(0.20 0.028 262 / 96%) !important;
+  border-color: oklch(1 0 0 / 12%) !important;
+}
+
+.dark .chat-header strong {
+  color: #ffffff !important;
+  font-size: 1rem;
+}
+
+.dark .chat-header small {
+  color: #94a3b8 !important;
+}
+
+.dark .chat-bubble {
+  background-color: oklch(0.27 0.03 262) !important;
+  color: #f8fafc !important;
+  border: 1px solid oklch(1 0 0 / 8%);
+}
+
 
 
