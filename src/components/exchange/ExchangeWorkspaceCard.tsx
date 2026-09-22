@@ -25,6 +25,9 @@ import { db } from "@/lib/firebase";
 import {
   createExchangeTask,
   deleteExchangeTask,
+  getDefaultStarterTasks,
+  getLocalExchangeTasks,
+  saveLocalExchangeTasks,
   toggleExchangeTaskCompletion,
   type ExchangeTask,
   type SkillExchange,
@@ -69,47 +72,84 @@ export function ExchangeWorkspaceCard({
 
   // Real-time listener for tasks
   useEffect(() => {
-    if (!exchange.id || !db) return;
+    if (!exchange.id) return;
 
-    const q = query(
-      collection(db, "exchanges", exchange.id, "tasks"),
-      orderBy("createdAt", "asc"),
-    );
+    // 1. Instantly check local storage or generate default starter tasks
+    let cached = getLocalExchangeTasks(exchange.id);
+    if (cached.length === 0 && currentUserId) {
+      const starters = getDefaultStarterTasks(
+        exchange.id,
+        currentUserId,
+        currentUserName || "Member",
+        partnerId,
+        partnerName,
+      );
+      saveLocalExchangeTasks(exchange.id, starters);
+      cached = starters;
+    }
+    if (cached.length > 0) {
+      setTasks(cached);
+      setLoading(false);
+    }
+
+    if (!db) return;
+
+    // 2. Query Firestore without orderBy constraint
+    const colRef = collection(db, "exchanges", exchange.id, "tasks");
 
     const unsubscribe = onSnapshot(
-      q,
+      colRef,
       (snapshot) => {
-        const loadedTasks: ExchangeTask[] = snapshot.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            exchangeId: exchange.id,
-            title: (d["title"] as string) || "Untitled Task",
-            description: (d["description"] as string | undefined) || undefined,
-            createdBy: (d["createdBy"] as string) || "",
-            createdByName: (d["createdByName"] as string | undefined) || undefined,
-            assignedTo: (d["assignedTo"] as string | undefined) || undefined,
-            assignedToName: (d["assignedToName"] as string | undefined) || undefined,
-            status: (d["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
-            dueDate: (d["dueDate"] as string | undefined) || undefined,
-            completed: d["completed"] === true,
-            completedAt: d["completedAt"],
-            completedBy: (d["completedBy"] as string | undefined) || undefined,
-            createdAt: d["createdAt"],
-            updatedAt: d["updatedAt"],
-          };
-        });
-        setTasks(loadedTasks);
+        if (!snapshot.empty) {
+          const loadedTasks: ExchangeTask[] = snapshot.docs.map((docSnap) => {
+            const d = docSnap.data();
+            return {
+              id: docSnap.id,
+              exchangeId: exchange.id,
+              title: (d["title"] as string) || "Untitled Task",
+              description: (d["description"] as string | undefined) || undefined,
+              createdBy: (d["createdBy"] as string) || "",
+              createdByName: (d["createdByName"] as string | undefined) || undefined,
+              assignedTo: (d["assignedTo"] as string | undefined) || undefined,
+              assignedToName: (d["assignedToName"] as string | undefined) || undefined,
+              status: (d["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
+              dueDate: (d["dueDate"] as string | undefined) || undefined,
+              completed: d["completed"] === true,
+              completedAt: d["completedAt"],
+              completedBy: (d["completedBy"] as string | undefined) || undefined,
+              createdAt: d["createdAt"],
+              updatedAt: d["updatedAt"],
+            };
+          });
+
+          loadedTasks.sort((a, b) => {
+            const aTime = a.createdAt ? new Date(a.createdAt as string).getTime() : 0;
+            const bTime = b.createdAt ? new Date(b.createdAt as string).getTime() : 0;
+            return aTime - bTime;
+          });
+
+          setTasks(loadedTasks);
+          saveLocalExchangeTasks(exchange.id, loadedTasks);
+        } else {
+          const currentLocal = getLocalExchangeTasks(exchange.id);
+          if (currentLocal.length > 0) {
+            setTasks(currentLocal);
+          }
+        }
         setLoading(false);
       },
       (error) => {
-        console.warn("Failed to listen to exchange tasks:", error);
+        console.warn("Notice: Using local exchange tasks fallback:", error);
+        const currentLocal = getLocalExchangeTasks(exchange.id);
+        if (currentLocal.length > 0) {
+          setTasks(currentLocal);
+        }
         setLoading(false);
       },
     );
 
     return () => unsubscribe();
-  }, [exchange.id]);
+  }, [exchange.id, currentUserId, partnerId, currentUserName, partnerName]);
 
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.completed || t.status === "COMPLETED").length;
@@ -143,6 +183,10 @@ export function ExchangeWorkspaceCard({
         completed: nextCompleted,
         completedBy: currentUserId,
       });
+      const updated = getLocalExchangeTasks(exchange.id);
+      if (updated.length > 0) {
+        setTasks(updated);
+      }
     } catch (err) {
       console.error("Failed to toggle task:", err);
       // Rollback
@@ -200,6 +244,10 @@ export function ExchangeWorkspaceCard({
         assignedToName: assigneeName,
         dueDate,
       });
+      const updated = getLocalExchangeTasks(exchange.id);
+      if (updated.length > 0) {
+        setTasks(updated);
+      }
     } catch (err) {
       console.error("Failed to add task:", err);
       setTasks((prev) => prev.filter((t) => t.id !== tempId));
@@ -215,6 +263,8 @@ export function ExchangeWorkspaceCard({
           exchangeId: exchange.id,
           taskId,
         });
+        const updated = getLocalExchangeTasks(exchange.id);
+        setTasks(updated);
       } catch (err) {
         console.error("Failed to delete task:", err);
       }
@@ -272,7 +322,7 @@ export function ExchangeWorkspaceCard({
           <div className="flex items-center gap-2 shrink-0">
             <Link
               to="/messages"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer"
             >
               <MessageCircle className="size-3.5 text-primary" />
               <span>Inbox & Chat</span>
@@ -330,7 +380,7 @@ export function ExchangeWorkspaceCard({
       </div>
 
       {/* Todo List Header & Controls */}
-      <div className="bg-slate-50/70 dark:bg-slate-850 px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+      <div className="bg-slate-50/70 dark:bg-slate-800/80 px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
         <button
           type="button"
           onClick={() => setIsExpanded(!isExpanded)}
@@ -475,10 +525,10 @@ export function ExchangeWorkspaceCard({
                 return (
                   <div
                     key={task.id}
-                    className={`group flex items-start justify-between gap-3 p-3 rounded-xl border transition ${
+                    className={`group flex items-start justify-between gap-3 p-3.5 rounded-xl border transition ${
                       isCompleted
-                        ? "bg-slate-50/80 dark:bg-slate-800/30 border-slate-100 dark:border-slate-800/50 opacity-75"
-                        : "bg-white dark:bg-slate-850 border-slate-200/80 dark:border-slate-750 hover:border-primary/40 shadow-2xs"
+                        ? "bg-slate-50/80 dark:bg-slate-900/60 border-slate-100 dark:border-slate-800/60 opacity-75"
+                        : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-primary/50 shadow-2xs text-slate-900 dark:text-white"
                     }`}
                   >
                     <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -491,7 +541,7 @@ export function ExchangeWorkspaceCard({
                         {isCompleted ? (
                           <CheckSquare className="size-5 text-emerald-500 dark:text-emerald-400" />
                         ) : (
-                          <Square className="size-5 text-slate-400 hover:text-primary" />
+                          <Square className="size-5 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-blue-400" />
                         )}
                       </button>
 
@@ -500,7 +550,7 @@ export function ExchangeWorkspaceCard({
                           className={`text-xs font-bold leading-snug break-words ${
                             isCompleted
                               ? "line-through text-slate-400 dark:text-slate-500"
-                              : "text-slate-800 dark:text-slate-100"
+                              : "text-slate-900 dark:text-white"
                           }`}
                         >
                           {task.title}
@@ -513,12 +563,12 @@ export function ExchangeWorkspaceCard({
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                           {/* Assignee Badge */}
                           <span
-                            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-black border ${
                               isAssignedToMe
-                                ? "bg-primary/10 text-primary"
+                                ? "bg-primary/10 dark:bg-primary/20 text-primary dark:text-blue-300 border-primary/20 dark:border-primary/40"
                                 : isAssignedToPartner
-                                  ? "bg-purple-500/10 text-purple-600 dark:text-purple-400"
-                                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                                  ? "bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60"
+                                  : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-600"
                             }`}
                           >
                             <Users className="size-2.5" />

@@ -7,6 +7,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -116,6 +117,84 @@ export async function sendExchangeRequest({
 }
 
 /**
+ * Safe local storage reader for exchange tasks (used for immediate offline/optimistic feedback).
+ */
+export function getLocalExchangeTasks(exchangeId: string): ExchangeTask[] {
+  if (typeof window === "undefined" || !exchangeId) return [];
+  try {
+    const raw = localStorage.getItem(`skill_binimoy_tasks_${exchangeId}`);
+    return raw ? (JSON.parse(raw) as ExchangeTask[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Safe local storage writer for exchange tasks.
+ */
+export function saveLocalExchangeTasks(exchangeId: string, tasks: ExchangeTask[]): void {
+  if (typeof window === "undefined" || !exchangeId) return;
+  try {
+    localStorage.setItem(`skill_binimoy_tasks_${exchangeId}`, JSON.stringify(tasks));
+  } catch (err) {
+    console.warn("Failed to write tasks to localStorage:", err);
+  }
+}
+
+/**
+ * Returns default 3 starter tasks so any active exchange always has initial milestones to complete.
+ */
+export function getDefaultStarterTasks(
+  exchangeId: string,
+  currentUserId: string,
+  currentUserName: string,
+  partnerId?: string | undefined,
+  partnerName?: string | undefined,
+): ExchangeTask[] {
+  return [
+    {
+      id: `${exchangeId}_starter_1`,
+      exchangeId,
+      title: "🎯 Initial alignment & skill sharing goals",
+      description: "Introduce goals, share background, and confirm what topics will be covered.",
+      createdBy: currentUserId,
+      createdByName: currentUserName,
+      assignedTo: "BOTH",
+      assignedToName: "Both Members",
+      status: "PENDING",
+      completed: false,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: `${exchangeId}_starter_2`,
+      exchangeId,
+      title: "📚 First skill sharing & practical walkthrough",
+      description: "Hold a live video call or chat session to walk through core concepts.",
+      createdBy: currentUserId,
+      createdByName: currentUserName,
+      assignedTo: currentUserId,
+      assignedToName: currentUserName,
+      status: "PENDING",
+      completed: false,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: `${exchangeId}_starter_3`,
+      exchangeId,
+      title: "💡 Practice review, hands-on Q&A, and mutual feedback",
+      description: "Review exercises, address questions, and provide reciprocal constructive feedback.",
+      createdBy: currentUserId,
+      createdByName: currentUserName,
+      assignedTo: partnerId || "BOTH",
+      assignedToName: partnerName || "Partner",
+      status: "PENDING",
+      completed: false,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
+/**
  * Recalculates total tasks, completed tasks, and progress percentage (0-100%)
  * for an exchange workspace, updating both the exchange and conversation.
  */
@@ -124,40 +203,55 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
   completedTasks: number;
   progress: number;
 }> {
-  const database = requireDb();
   if (!exchangeId) return { totalTasks: 0, completedTasks: 0, progress: 0 };
-
-  const tasksSnap = await getDocs(collection(database, "exchanges", exchangeId, "tasks"));
-  const totalTasks = tasksSnap.docs.length;
+  let totalTasks = 0;
   let completedTasks = 0;
 
-  tasksSnap.docs.forEach((docSnap) => {
-    const data = docSnap.data();
-    if (data["completed"] === true || data["status"] === "COMPLETED") {
-      completedTasks++;
+  try {
+    const database = requireDb();
+    const tasksSnap = await getDocs(collection(database, "exchanges", exchangeId, "tasks"));
+    totalTasks = tasksSnap.docs.length;
+
+    tasksSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data["completed"] === true || data["status"] === "COMPLETED") {
+        completedTasks++;
+      }
+    });
+  } catch (err) {
+    console.warn("Could not fetch remote tasks for progress recalculation:", err);
+  }
+
+  // Fallback to local storage if Firestore had 0 tasks or failed
+  if (totalTasks === 0) {
+    const localTasks = getLocalExchangeTasks(exchangeId);
+    if (localTasks.length > 0) {
+      totalTasks = localTasks.length;
+      completedTasks = localTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
     }
-  });
+  }
 
   const progress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
-  const exchangeRef = doc(database, "exchanges", exchangeId);
-  const exchangeSnap = await getDoc(exchangeRef);
-
-  const updatePayload: Record<string, unknown> = {
-    totalTasks,
-    completedTasks,
-    progress,
-    updatedAt: serverTimestamp(),
-  };
-
-  if (totalTasks > 0 && completedTasks === totalTasks) {
-    updatePayload["status"] = "COMPLETED";
-  } else if (exchangeSnap.exists() && exchangeSnap.data()["status"] === "COMPLETED" && completedTasks < totalTasks) {
-    updatePayload["status"] = "ACTIVE";
-  }
-
   try {
-    await updateDoc(exchangeRef, updatePayload);
+    const database = requireDb();
+    const exchangeRef = doc(database, "exchanges", exchangeId);
+    const exchangeSnap = await getDoc(exchangeRef);
+
+    const updatePayload: Record<string, unknown> = {
+      totalTasks,
+      completedTasks,
+      progress,
+      updatedAt: serverTimestamp(),
+    };
+
+    if (totalTasks > 0 && completedTasks === totalTasks) {
+      updatePayload["status"] = "COMPLETED";
+    } else if (exchangeSnap.exists() && exchangeSnap.data()["status"] === "COMPLETED" && completedTasks < totalTasks) {
+      updatePayload["status"] = "ACTIVE";
+    }
+
+    await setDoc(exchangeRef, updatePayload, { merge: true });
 
     // Also update linked conversation if present
     if (exchangeSnap.exists()) {
@@ -530,11 +624,12 @@ export async function createExchangeTask({
   assignedTo?: string | undefined;
   assignedToName?: string | undefined;
   dueDate?: string | undefined;
-}) {
-  const database = requireDb();
-  if (!exchangeId || !title.trim()) return;
+}): Promise<string> {
+  if (!exchangeId || !title.trim()) return "";
 
-  await addDoc(collection(database, "exchanges", exchangeId, "tasks"), {
+  const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const taskObj: ExchangeTask = {
+    id: taskId,
     exchangeId,
     title: title.trim(),
     description: description ? description.trim() : "",
@@ -545,11 +640,28 @@ export async function createExchangeTask({
     dueDate: dueDate || "",
     status: "PENDING",
     completed: false,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+    createdAt: new Date().toISOString(),
+  };
+
+  // 1. Immediately store in local storage so it is instant and immune to network/rules failure
+  const local = getLocalExchangeTasks(exchangeId);
+  saveLocalExchangeTasks(exchangeId, [...local, taskObj]);
+
+  // 2. Persist to Firestore
+  try {
+    const database = requireDb();
+    const taskDocRef = doc(database, "exchanges", exchangeId, "tasks", taskId);
+    await setDoc(taskDocRef, {
+      ...taskObj,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn("Firestore task creation notice (preserved locally):", err);
+  }
 
   void recalculateExchangeProgress(exchangeId);
+  return taskId;
 }
 
 /**
@@ -566,18 +678,45 @@ export async function toggleExchangeTaskCompletion({
   completed: boolean;
   completedBy?: string | undefined;
 }) {
-  const database = requireDb();
   if (!exchangeId || !taskId) return;
+
+  const newStatus: "COMPLETED" | "PENDING" = completed ? "COMPLETED" : "PENDING";
+  const completedAtStr = completed ? new Date().toISOString() : undefined;
+  const completedByVal = completed ? (completedBy || undefined) : undefined;
 
   const updateData: Record<string, unknown> = {
     completed,
-    status: completed ? "COMPLETED" : "PENDING",
-    completedAt: completed ? new Date().toISOString() : null,
-    completedBy: completed ? (completedBy || null) : null,
-    updatedAt: serverTimestamp(),
+    status: newStatus,
+    completedAt: completedAtStr || null,
+    completedBy: completedByVal || null,
+    updatedAt: new Date().toISOString(),
   };
 
-  await updateDoc(doc(database, "exchanges", exchangeId, "tasks", taskId), updateData);
+  // 1. Update in local storage
+  const local = getLocalExchangeTasks(exchangeId);
+  const updatedLocal: ExchangeTask[] = local.map((t) =>
+    t.id === taskId
+      ? {
+          ...t,
+          completed,
+          status: newStatus,
+          completedAt: completedAtStr,
+          completedBy: completedByVal,
+          updatedAt: new Date().toISOString(),
+        }
+      : t,
+  );
+  saveLocalExchangeTasks(exchangeId, updatedLocal);
+
+  // 2. Update in Firestore with setDoc merge
+  try {
+    const database = requireDb();
+    const taskRef = doc(database, "exchanges", exchangeId, "tasks", taskId);
+    await setDoc(taskRef, { ...updateData, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.warn("Firestore toggle task sync notice (preserved locally):", err);
+  }
+
   void recalculateExchangeProgress(exchangeId);
 }
 
@@ -591,10 +730,20 @@ export async function deleteExchangeTask({
   exchangeId: string;
   taskId: string;
 }) {
-  const database = requireDb();
   if (!exchangeId || !taskId) return;
 
-  await deleteDoc(doc(database, "exchanges", exchangeId, "tasks", taskId));
+  // 1. Remove from local storage
+  const local = getLocalExchangeTasks(exchangeId);
+  saveLocalExchangeTasks(exchangeId, local.filter((t) => t.id !== taskId));
+
+  // 2. Remove from Firestore
+  try {
+    const database = requireDb();
+    await deleteDoc(doc(database, "exchanges", exchangeId, "tasks", taskId));
+  } catch (err) {
+    console.warn("Firestore delete task notice (removed locally):", err);
+  }
+
   void recalculateExchangeProgress(exchangeId);
 }
 

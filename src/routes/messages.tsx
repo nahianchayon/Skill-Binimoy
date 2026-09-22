@@ -37,7 +37,10 @@ import { db } from "@/lib/firebase";
 import {
   createExchangeTask,
   deleteExchangeTask,
+  getDefaultStarterTasks,
+  getLocalExchangeTasks,
   getOrCreateExchangeForUsers,
+  saveLocalExchangeTasks,
   toggleExchangeTaskCompletion,
   type ExchangeTask,
   type SkillExchange,
@@ -137,7 +140,7 @@ function MessagesPage() {
   const [activeExchangeId, setActiveExchangeId] = useState<string | null>(null);
   const [activeExchange, setActiveExchange] = useState<SkillExchange | null>(null);
   const [activeTasks, setActiveTasks] = useState<ExchangeTask[]>([]);
-  const [isTodoExpanded, setIsTodoExpanded] = useState(false);
+  const [isTodoExpanded, setIsTodoExpanded] = useState(true);
   const [todoFilter, setTodoFilter] = useState<"ALL" | "PENDING" | "COMPLETED">("ALL");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
@@ -308,44 +311,83 @@ function MessagesPage() {
 
   // Real-time listener for exchange tasks
   useEffect(() => {
-    if (!activeExchangeId || !db) {
+    if (!activeExchangeId) {
       setActiveTasks([]);
       return;
     }
 
-    const q = query(
-      collection(db, "exchanges", activeExchangeId, "tasks"),
-      orderBy("createdAt", "asc"),
-    );
+    // 1. Instantly load from local storage or generate default starter tasks
+    let cached = getLocalExchangeTasks(activeExchangeId);
+    if (cached.length === 0 && user) {
+      const starters = getDefaultStarterTasks(
+        activeExchangeId,
+        user.uid,
+        profile?.displayName || user.displayName || "Member",
+        selectedPartner?.partnerId || "",
+        selectedPartner?.name || "Partner",
+      );
+      saveLocalExchangeTasks(activeExchangeId, starters);
+      cached = starters;
+    }
+    if (cached.length > 0) {
+      setActiveTasks(cached);
+    }
+
+    if (!db) return;
+
+    // 2. Query Firestore without orderBy constraint for 100% reliability
+    const q = collection(db, "exchanges", activeExchangeId, "tasks");
 
     return onSnapshot(
       q,
       (snap) => {
-        const loaded: ExchangeTask[] = snap.docs.map((docSnap) => {
-          const d = docSnap.data();
-          return {
-            id: docSnap.id,
-            exchangeId: activeExchangeId,
-            title: (d["title"] as string) || "Untitled Task",
-            description: (d["description"] as string | undefined) || undefined,
-            createdBy: (d["createdBy"] as string) || "",
-            createdByName: (d["createdByName"] as string | undefined) || undefined,
-            assignedTo: (d["assignedTo"] as string | undefined) || undefined,
-            assignedToName: (d["assignedToName"] as string | undefined) || undefined,
-            status: (d["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
-            dueDate: (d["dueDate"] as string | undefined) || undefined,
-            completed: d["completed"] === true,
-            completedAt: d["completedAt"],
-            completedBy: (d["completedBy"] as string | undefined) || undefined,
-            createdAt: d["createdAt"],
-            updatedAt: d["updatedAt"],
-          };
-        });
-        setActiveTasks(loaded);
+        if (!snap.empty) {
+          const loaded: ExchangeTask[] = snap.docs.map((docSnap) => {
+            const d = docSnap.data();
+            return {
+              id: docSnap.id,
+              exchangeId: activeExchangeId,
+              title: (d["title"] as string) || "Untitled Task",
+              description: (d["description"] as string | undefined) || undefined,
+              createdBy: (d["createdBy"] as string) || "",
+              createdByName: (d["createdByName"] as string | undefined) || undefined,
+              assignedTo: (d["assignedTo"] as string | undefined) || undefined,
+              assignedToName: (d["assignedToName"] as string | undefined) || undefined,
+              status: (d["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
+              dueDate: (d["dueDate"] as string | undefined) || undefined,
+              completed: d["completed"] === true,
+              completedAt: d["completedAt"],
+              completedBy: (d["completedBy"] as string | undefined) || undefined,
+              createdAt: d["createdAt"],
+              updatedAt: d["updatedAt"],
+            };
+          });
+
+          loaded.sort((a, b) => {
+            const aTime = a.createdAt ? new Date(a.createdAt as string).getTime() : 0;
+            const bTime = b.createdAt ? new Date(b.createdAt as string).getTime() : 0;
+            return aTime - bTime;
+          });
+
+          setActiveTasks(loaded);
+          saveLocalExchangeTasks(activeExchangeId, loaded);
+        } else {
+          // If Firestore is empty, maintain local starter tasks
+          const localTasks = getLocalExchangeTasks(activeExchangeId);
+          if (localTasks.length > 0) {
+            setActiveTasks(localTasks);
+          }
+        }
       },
-      (err) => console.warn("Failed to listen to tasks:", err),
+      (err) => {
+        console.warn("Notice: Using local exchange tasks fallback:", err);
+        const localTasks = getLocalExchangeTasks(activeExchangeId);
+        if (localTasks.length > 0) {
+          setActiveTasks(localTasks);
+        }
+      },
     );
-  }, [activeExchangeId]);
+  }, [activeExchangeId, user?.uid, selectedPartner?.partnerId, profile?.displayName]);
 
   // Dynamic progress calculation
   const totalTasks = activeTasks.length;
@@ -387,6 +429,10 @@ function MessagesPage() {
         completed: nextCompleted,
         completedBy: user.uid,
       });
+      const updated = getLocalExchangeTasks(exchangeIdToUse);
+      if (updated.length > 0) {
+        setActiveTasks(updated);
+      }
     } catch (err) {
       console.error("Failed to toggle task:", err);
       // Rollback on error
@@ -464,6 +510,10 @@ function MessagesPage() {
         assignedTo: newTaskAssignee,
         assignedToName: assigneeName,
       });
+      const updated = getLocalExchangeTasks(targetExchangeId);
+      if (updated.length > 0) {
+        setActiveTasks(updated);
+      }
     } catch (err) {
       console.error("Failed to add task:", err);
       setActiveTasks((prev) => prev.filter((t) => t.id !== tempId));
@@ -482,6 +532,8 @@ function MessagesPage() {
           exchangeId: exchangeIdToUse,
           taskId,
         });
+        const updated = getLocalExchangeTasks(exchangeIdToUse);
+        setActiveTasks(updated);
       } catch (err) {
         console.error("Failed to delete task:", err);
         setNotice("Failed to delete task.");
@@ -745,44 +797,44 @@ function MessagesPage() {
                 </div>
 
                 {/* Progress Bar & Shared Todo List in Inbox */}
-                <div className="border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-850/95 backdrop-blur-xs px-4 py-2.5 shrink-0 transition">
+                <div className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/95 dark:bg-slate-900 backdrop-blur-xs px-4 py-3 shrink-0 transition shadow-2xs">
                   <div className="flex items-center justify-between gap-3">
                     <button
                       type="button"
                       onClick={() => setIsTodoExpanded(!isTodoExpanded)}
-                      className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-primary transition cursor-pointer min-w-0"
+                      className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white hover:text-primary dark:hover:text-blue-400 transition cursor-pointer min-w-0"
                     >
-                      <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <ListTodo className="size-3.5" />
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 dark:bg-primary/20 text-primary dark:text-blue-400">
+                        <ListTodo className="size-4" />
                       </div>
-                      <span className="truncate">Exchange Todo List</span>
-                      <span className="shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 text-[10px] font-black text-slate-700 dark:text-slate-300">
+                      <span className="truncate font-extrabold text-slate-900 dark:text-white">Exchange Todo List</span>
+                      <span className="shrink-0 rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-[10px] font-black text-slate-800 dark:text-slate-100">
                         {completedTasks}/{totalTasks}
                       </span>
                       {isTodoExpanded ? (
-                        <ChevronUp className="size-3 text-slate-400 shrink-0" />
+                        <ChevronUp className="size-3.5 text-slate-400 shrink-0" />
                       ) : (
-                        <ChevronDown className="size-3 text-slate-400 shrink-0" />
+                        <ChevronDown className="size-3.5 text-slate-400 shrink-0" />
                       )}
                     </button>
 
                     <div className="flex items-center gap-3 flex-1 max-w-xs sm:max-w-sm justify-end">
                       {/* Visual Progress Bar: 0% ━━━━ 100% */}
                       <div className="flex-1 min-w-[80px] sm:min-w-[130px]">
-                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 mb-1">
+                        <div className="flex items-center justify-between text-[10px] font-black text-slate-600 dark:text-slate-300 mb-1">
                           <span>0%</span>
                           <span
                             className={
                               progressPercent === 100
                                 ? "text-emerald-600 dark:text-emerald-400 font-black"
-                                : "text-primary font-black"
+                                : "text-primary dark:text-blue-400 font-black"
                             }
                           >
                             {progressPercent}%
                           </span>
                           <span>100%</span>
                         </div>
-                        <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                        <div className="relative h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
                           <div
                             className={`h-full rounded-full transition-all duration-500 ease-out ${
                               progressPercent === 100
@@ -800,7 +852,7 @@ function MessagesPage() {
                           setIsTodoExpanded(true);
                           setIsAddingTask(!isAddingTask);
                         }}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition cursor-pointer"
+                        className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 dark:bg-primary/20 hover:bg-primary/20 text-primary dark:text-blue-400 transition cursor-pointer"
                         title="Add Shared Task"
                       >
                         <Plus className="size-4" />
@@ -810,17 +862,17 @@ function MessagesPage() {
 
                   {/* Expandable Shared Todo List Drawer */}
                   {isTodoExpanded && (
-                    <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800 space-y-2.5 max-h-56 overflow-y-auto animate-in fade-in duration-200">
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2.5 max-h-56 overflow-y-auto animate-in fade-in duration-200">
                       {/* Controls & Filters */}
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center rounded-lg bg-slate-200/60 dark:bg-slate-800 p-0.5 text-[10px] font-bold">
+                        <div className="flex items-center rounded-lg bg-slate-200/80 dark:bg-slate-800 p-0.5 text-[10px] font-bold border border-slate-200 dark:border-slate-700">
                           <button
                             type="button"
                             onClick={() => setTodoFilter("ALL")}
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "ALL"
-                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-extrabold"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                             }`}
                           >
                             All ({totalTasks})
@@ -830,8 +882,8 @@ function MessagesPage() {
                             onClick={() => setTodoFilter("PENDING")}
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "PENDING"
-                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-extrabold"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                             }`}
                           >
                             Pending ({totalTasks - completedTasks})
@@ -841,8 +893,8 @@ function MessagesPage() {
                             onClick={() => setTodoFilter("COMPLETED")}
                             className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
                               todoFilter === "COMPLETED"
-                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs"
-                                : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"
+                                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs font-extrabold"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                             }`}
                           >
                             Done ({completedTasks})
@@ -852,7 +904,7 @@ function MessagesPage() {
                         <button
                           type="button"
                           onClick={() => setIsAddingTask(!isAddingTask)}
-                          className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                          className="text-[11px] font-bold text-primary dark:text-blue-400 hover:underline cursor-pointer"
                         >
                           {isAddingTask ? "Cancel" : "+ Add Task"}
                         </button>
@@ -860,19 +912,19 @@ function MessagesPage() {
 
                       {/* Add Task Input Form */}
                       {isAddingTask && (
-                        <form onSubmit={handleAddInboxTask} className="flex items-center gap-1.5 p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-primary/30">
+                        <form onSubmit={handleAddInboxTask} className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                           <input
                             type="text"
                             required
                             placeholder="Add task title (e.g. review code together)..."
                             value={newTaskTitle}
                             onChange={(e) => setNewTaskTitle(e.target.value)}
-                            className="flex-1 text-xs px-2 py-1 bg-transparent dark:text-white outline-none"
+                            className="flex-1 min-w-[160px] text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-primary"
                           />
                           <select
                             value={newTaskAssignee}
                             onChange={(e) => setNewTaskAssignee(e.target.value)}
-                            className="text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-slate-700 dark:text-slate-200 outline-none"
+                            className="text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-slate-900 dark:text-white outline-none"
                           >
                             <option value="BOTH">Both</option>
                             <option value={user?.uid || "ME"}>You</option>
@@ -880,7 +932,7 @@ function MessagesPage() {
                           </select>
                           <button
                             type="submit"
-                            className="rounded-lg bg-primary px-2.5 py-1 text-[11px] font-bold text-white hover:bg-primary-hover transition cursor-pointer"
+                            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer shadow-2xs"
                           >
                             Save
                           </button>
@@ -889,7 +941,7 @@ function MessagesPage() {
 
                       {/* Task List */}
                       {filteredTasks.length === 0 ? (
-                        <div className="py-2 text-center text-xs text-slate-400">
+                        <div className="py-3 text-center text-xs text-slate-500 dark:text-slate-400 font-medium">
                           {todoFilter === "ALL"
                             ? "No tasks yet. Click '+ Add Task' to add learning milestones!"
                             : todoFilter === "PENDING"
@@ -897,7 +949,7 @@ function MessagesPage() {
                               : "No tasks completed yet."}
                         </div>
                       ) : (
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                           {filteredTasks.map((task) => {
                             const isCompleted = task.completed || task.status === "COMPLETED";
                             const isAssignedToMe = Boolean(user?.uid && task.assignedTo === user.uid);
@@ -906,10 +958,10 @@ function MessagesPage() {
                             return (
                               <div
                                 key={task.id}
-                                className={`group flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border transition ${
+                                className={`group flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg border transition ${
                                   isCompleted
-                                    ? "bg-slate-100/50 dark:bg-slate-800/20 border-slate-200/40 dark:border-slate-800/40 opacity-70"
-                                    : "bg-white dark:bg-slate-800 border-slate-200/70 dark:border-slate-700/70 shadow-2xs"
+                                    ? "bg-slate-100/60 dark:bg-slate-900/60 border-slate-200/50 dark:border-slate-800/60 opacity-75"
+                                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-2xs"
                                 }`}
                               >
                                 <button
@@ -919,29 +971,29 @@ function MessagesPage() {
                                   title={isCompleted ? "Mark pending" : "Mark completed"}
                                 >
                                   {isCompleted ? (
-                                    <CheckSquare className="size-4 text-emerald-500 dark:text-emerald-400" />
+                                    <CheckSquare className="size-4.5 text-emerald-500 dark:text-emerald-400" />
                                   ) : (
-                                    <Square className="size-4 text-slate-400 hover:text-primary" />
+                                    <Square className="size-4.5 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-blue-400" />
                                   )}
                                 </button>
 
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                   <span
-                                    className={`text-xs font-semibold truncate ${
+                                    className={`text-xs font-bold truncate ${
                                       isCompleted
-                                        ? "line-through text-slate-400 dark:text-slate-500"
-                                        : "text-slate-800 dark:text-slate-100"
+                                        ? "line-through text-slate-500 dark:text-slate-400"
+                                        : "text-slate-900 dark:text-white"
                                     }`}
                                   >
                                     {task.title}
                                   </span>
                                   <span
-                                    className={`shrink-0 rounded px-1.5 py-0.2 text-[9px] font-bold ${
+                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black border ${
                                       isAssignedToMe
-                                        ? "bg-primary/10 text-primary"
+                                        ? "bg-primary/10 dark:bg-primary/20 text-primary dark:text-blue-300 border-primary/20 dark:border-primary/40"
                                         : isAssignedToPartner
-                                          ? "bg-purple-500/10 text-purple-600 dark:text-purple-400"
-                                          : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400"
+                                          ? "bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60"
+                                          : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-600"
                                     }`}
                                   >
                                     {isAssignedToMe
@@ -955,10 +1007,10 @@ function MessagesPage() {
                                 <button
                                   type="button"
                                   onClick={() => void handleDeleteInboxTask(task.id, task.title)}
-                                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition p-0.5 cursor-pointer"
+                                  className="opacity-70 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition p-0.5 cursor-pointer"
                                   title="Delete task"
                                 >
-                                  <Trash2 className="size-3" />
+                                  <Trash2 className="size-3.5" />
                                 </button>
                               </div>
                             );

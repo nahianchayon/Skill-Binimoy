@@ -1606,7 +1606,7 @@ function SectionPage() {
                                                 e.preventDefault();
                                                 void handleAddReply(row.id, comment.id);
                                               }}
-                                              className="mt-2.5 p-3 rounded-xl border border-primary/30 bg-primary-soft/30 dark:bg-slate-850 space-y-2 animate-in fade-in"
+                                              className="mt-2.5 p-3 rounded-xl border border-primary/30 bg-primary-soft/30 dark:bg-slate-800 space-y-2 animate-in fade-in"
                                             >
                                               <div className="flex items-center justify-between text-[11px] text-slate-500">
                                                 <span className="flex items-center gap-1 font-semibold">
@@ -1658,7 +1658,7 @@ function SectionPage() {
                                                 return (
                                                   <div
                                                     key={reply.id}
-                                                    className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850/80 p-3 text-xs shadow-2xs"
+                                                    className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-800/80 p-3 text-xs shadow-2xs"
                                                   >
                                                     <div className="flex items-center justify-between gap-2">
                                                       <div

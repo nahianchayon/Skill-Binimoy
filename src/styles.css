@@ -2564,5 +2564,25 @@
   color: #bbf7d0 !important;
 }
 
+/* Dark Mode Exchange Todo List & Workspace Contrast Rules */
+.dark .exchange-todo-card {
+  background-color: oklch(0.20 0.028 262) !important;
+  border-color: oklch(1 0 0 / 14%) !important;
+  color: #ffffff !important;
+}
+.dark .exchange-task-item {
+  background-color: oklch(0.22 0.028 262) !important;
+  border-color: oklch(1 0 0 / 12%) !important;
+  color: #ffffff !important;
+}
+.dark .exchange-task-title {
+  color: #ffffff !important;
+}
+.dark .exchange-task-completed {
+  color: #94a3b8 !important;
+  text-decoration: line-through !important;
+}
+
+
 
 
