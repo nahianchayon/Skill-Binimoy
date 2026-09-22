@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock,
+  CornerDownRight,
   CreditCard,
   Crown,
   FileText,
@@ -18,11 +19,13 @@ import {
   MessageSquare,
   PhoneCall,
   Plus,
+  Reply,
   Send,
   ShieldAlert,
   ShoppingBag,
   Smartphone,
   Sparkles,
+  ThumbsDown,
   ThumbsUp,
   Trash2,
   UserCheck,
@@ -46,15 +49,31 @@ import { ExchangeWorkspacesView } from "@/components/exchange/ExchangeWorkspaces
 
 export const Route = createFileRoute("/$section")({ component: SectionPage });
 
+type CommentReply = {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorPhoto?: string | null | undefined;
+  text: string;
+  createdAt: string;
+  likes?: string[] | undefined;
+  dislikes?: string[] | undefined;
+  premium?: boolean | undefined;
+  tutorVerified?: boolean | undefined;
+};
+
 type CommentItem = {
   id: string;
   authorId: string;
   authorName: string;
-  authorPhoto?: string | null;
+  authorPhoto?: string | null | undefined;
   text: string;
   createdAt: string;
-  premium?: boolean;
-  tutorVerified?: boolean;
+  likes?: string[] | undefined;
+  dislikes?: string[] | undefined;
+  replies?: CommentReply[] | undefined;
+  premium?: boolean | undefined;
+  tutorVerified?: boolean | undefined;
 };
 
 type Row = {
@@ -238,6 +257,10 @@ function SectionPage() {
   // Active solution/comment reply input map: { [postId]: string }
   const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({});
+
+  // Comment replies state: { [commentId]: string }
+  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
+  const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
 
   // Premium Simulated Checkout State
   const [paymentModal, setPaymentModal] = useState<"monthly" | "yearly" | null>(null);
@@ -488,6 +511,209 @@ function SectionPage() {
       );
       setCommentInputs((prev) => ({ ...prev, [postId]: text }));
       setNotice(error instanceof Error ? error.message : "Could not post solution/comment.");
+    }
+  }
+
+  // Toggle like or dislike on a comment/solution
+  async function handleToggleCommentReaction(
+    postId: string,
+    commentId: string,
+    reactionType: "like" | "dislike",
+  ) {
+    if (!user) {
+      setNotice("Please log in to react to solutions.");
+      return;
+    }
+
+    const post = rows.find((r) => r.id === postId);
+    if (!post) return;
+    const currentComments: CommentItem[] = Array.isArray(post.comments) ? post.comments : [];
+
+    const updatedComments = currentComments.map((c) => {
+      if (c.id !== commentId) return c;
+
+      const currentLikes = Array.isArray(c.likes) ? c.likes : [];
+      const currentDislikes = Array.isArray(c.dislikes) ? c.dislikes : [];
+
+      let nextLikes = [...currentLikes];
+      let nextDislikes = [...currentDislikes];
+
+      if (reactionType === "like") {
+        if (currentLikes.includes(user.uid)) {
+          nextLikes = currentLikes.filter((uid) => uid !== user.uid);
+        } else {
+          nextLikes = [...currentLikes, user.uid];
+          nextDislikes = currentDislikes.filter((uid) => uid !== user.uid);
+        }
+      } else {
+        if (currentDislikes.includes(user.uid)) {
+          nextDislikes = currentDislikes.filter((uid) => uid !== user.uid);
+        } else {
+          nextDislikes = [...currentDislikes, user.uid];
+          nextLikes = currentLikes.filter((uid) => uid !== user.uid);
+        }
+      }
+
+      return {
+        ...c,
+        likes: nextLikes,
+        dislikes: nextDislikes,
+      };
+    });
+
+    setRows((prev) =>
+      prev.map((r) => (r.id === postId ? { ...r, comments: updatedComments } : r)),
+    );
+
+    try {
+      await updateRecord("posts", postId, { comments: updatedComments });
+    } catch (error) {
+      console.warn("Could not update reaction:", error);
+      setRows((prev) =>
+        prev.map((r) => (r.id === postId ? { ...r, comments: currentComments } : r)),
+      );
+      setNotice("Failed to update reaction.");
+    }
+  }
+
+  // Toggle like or dislike on a nested reply
+  async function handleToggleReplyReaction(
+    postId: string,
+    commentId: string,
+    replyId: string,
+    reactionType: "like" | "dislike",
+  ) {
+    if (!user) {
+      setNotice("Please log in to react to replies.");
+      return;
+    }
+
+    const post = rows.find((r) => r.id === postId);
+    if (!post) return;
+    const currentComments: CommentItem[] = Array.isArray(post.comments) ? post.comments : [];
+
+    const updatedComments = currentComments.map((c) => {
+      if (c.id !== commentId) return c;
+      const currentReplies: CommentReply[] = Array.isArray(c.replies) ? c.replies : [];
+
+      const updatedReplies = currentReplies.map((rep) => {
+        if (rep.id !== replyId) return rep;
+
+        const currentLikes = Array.isArray(rep.likes) ? rep.likes : [];
+        const currentDislikes = Array.isArray(rep.dislikes) ? rep.dislikes : [];
+
+        let nextLikes = [...currentLikes];
+        let nextDislikes = [...currentDislikes];
+
+        if (reactionType === "like") {
+          if (currentLikes.includes(user.uid)) {
+            nextLikes = currentLikes.filter((uid) => uid !== user.uid);
+          } else {
+            nextLikes = [...currentLikes, user.uid];
+            nextDislikes = currentDislikes.filter((uid) => uid !== user.uid);
+          }
+        } else {
+          if (currentDislikes.includes(user.uid)) {
+            nextDislikes = currentDislikes.filter((uid) => uid !== user.uid);
+          } else {
+            nextDislikes = [...currentDislikes, user.uid];
+            nextLikes = currentLikes.filter((uid) => uid !== user.uid);
+          }
+        }
+
+        return {
+          ...rep,
+          likes: nextLikes,
+          dislikes: nextDislikes,
+        };
+      });
+
+      return {
+        ...c,
+        replies: updatedReplies,
+      };
+    });
+
+    setRows((prev) =>
+      prev.map((r) => (r.id === postId ? { ...r, comments: updatedComments } : r)),
+    );
+
+    try {
+      await updateRecord("posts", postId, { comments: updatedComments });
+    } catch (error) {
+      console.warn("Could not update reply reaction:", error);
+      setRows((prev) =>
+        prev.map((r) => (r.id === postId ? { ...r, comments: currentComments } : r)),
+      );
+      setNotice("Failed to update reply reaction.");
+    }
+  }
+
+  // Add a reply to a comment
+  async function handleAddReply(postId: string, commentId: string) {
+    if (!user) {
+      setNotice("Please log in to reply.");
+      return;
+    }
+    const text = replyInputs[commentId]?.trim();
+    if (!text) return;
+
+    const post = rows.find((r) => r.id === postId);
+    if (!post) return;
+    const currentComments: CommentItem[] = Array.isArray(post.comments) ? post.comments : [];
+
+    const newReply: CommentReply = {
+      id: `rep_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      authorId: user.uid,
+      authorName: profile?.displayName || user.displayName || "Member",
+      authorPhoto: profile?.photoURL || user.photoURL || null,
+      text,
+      createdAt: new Date().toISOString(),
+      likes: [],
+      dislikes: [],
+      premium: Boolean(profile?.premium),
+      tutorVerified: Boolean(profile?.tutorVerified),
+    };
+
+    let targetCommentAuthorId = "";
+    const updatedComments = currentComments.map((c) => {
+      if (c.id !== commentId) return c;
+      targetCommentAuthorId = c.authorId;
+      const currentReplies = Array.isArray(c.replies) ? c.replies : [];
+      return {
+        ...c,
+        replies: [...currentReplies, newReply],
+      };
+    });
+
+    setRows((prev) =>
+      prev.map((r) => (r.id === postId ? { ...r, comments: updatedComments } : r)),
+    );
+    setReplyInputs((prev) => ({ ...prev, [commentId]: "" }));
+    setActiveReplyCommentId(null);
+
+    try {
+      await updateRecord("posts", postId, { comments: updatedComments });
+
+      if (targetCommentAuthorId && targetCommentAuthorId !== user.uid) {
+        await createRecord("notifications", {
+          recipientId: targetCommentAuthorId,
+          title: "New Reply on Your Solution",
+          message: `${profile?.displayName || user.displayName || "A member"} replied to your solution: "${text.slice(0, 80)}"`,
+          status: "UNREAD",
+          type: "COMMENT_REPLY",
+          postId,
+        }).catch(console.warn);
+      }
+
+      setNotice("Reply posted successfully.");
+    } catch (error) {
+      console.warn("Could not post reply:", error);
+      setRows((prev) =>
+        prev.map((r) => (r.id === postId ? { ...r, comments: currentComments } : r)),
+      );
+      setReplyInputs((prev) => ({ ...prev, [commentId]: text }));
+      setNotice(error instanceof Error ? error.message : "Failed to post reply.");
     }
   }
 
@@ -1258,61 +1484,267 @@ function SectionPage() {
                                   </p>
                                 </div>
                               ) : (
-                                <div className="space-y-2.5">
-                                  {comments.map((comment) => (
-                                    <div
-                                      key={comment.id}
-                                      className="rounded-xl border border-border bg-card p-3.5 sm:p-4 text-xs shadow-2xs transition hover:border-slate-300 dark:hover:border-slate-700"
-                                    >
-                                      <div className="flex items-center justify-between gap-2">
+                                  <div className="space-y-3">
+                                    {comments.map((comment) => {
+                                      const commentLikes = Array.isArray(comment.likes) ? comment.likes : [];
+                                      const commentDislikes = Array.isArray(comment.dislikes) ? comment.dislikes : [];
+                                      const commentReplies = Array.isArray(comment.replies) ? comment.replies : [];
+                                      const hasLikedComment = Boolean(user && commentLikes.includes(user.uid));
+                                      const hasDislikedComment = Boolean(user && commentDislikes.includes(user.uid));
+
+                                      return (
                                         <div
-                                          onClick={() => {
-                                            if (comment.authorId) {
-                                              setViewingProfile({
-                                                uid: comment.authorId,
-                                                id: comment.authorId,
-                                                displayName: comment.authorName || "Community Member",
-                                                photoURL: comment.authorPhoto || null,
-                                                role: "MEMBER",
-                                                bio: `Contributed solution: "${comment.text}"`,
-                                              });
-                                            }
-                                          }}
-                                          className="flex items-center gap-2.5 cursor-pointer group"
+                                          key={comment.id}
+                                          className="rounded-2xl border border-border bg-card p-4 sm:p-4.5 text-xs shadow-2xs transition hover:border-slate-300 dark:hover:border-slate-700"
                                         >
-                                          {comment.authorPhoto ? (
-                                            <img
-                                              src={comment.authorPhoto}
-                                              alt={comment.authorName}
-                                              className="size-7 rounded-full object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
-                                            />
-                                          ) : (
-                                            <span className="grid size-7 place-items-center rounded-full bg-primary/10 text-xs font-black text-primary group-hover:bg-primary group-hover:text-white transition">
-                                              {comment.authorName.slice(0, 1)}
-                                            </span>
-                                          )}
-                                          <span className="font-extrabold text-sm text-slate-950 dark:text-white group-hover:text-primary transition inline-flex items-center gap-1.5">
-                                            {comment.authorName}
-                                            {(comment.premium || comment.tutorVerified || (comment.authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
-                                              <span title="Verified Member" className="text-primary shrink-0">
-                                                <BadgeCheck className="size-3.5" />
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div
+                                              onClick={() => {
+                                                if (comment.authorId) {
+                                                  setViewingProfile({
+                                                    uid: comment.authorId,
+                                                    id: comment.authorId,
+                                                    displayName: comment.authorName || "Community Member",
+                                                    photoURL: comment.authorPhoto || null,
+                                                    role: "MEMBER",
+                                                    bio: `Contributed solution: "${comment.text}"`,
+                                                  });
+                                                }
+                                              }}
+                                              className="flex items-center gap-2.5 cursor-pointer group"
+                                            >
+                                              {comment.authorPhoto ? (
+                                                <img
+                                                  src={comment.authorPhoto}
+                                                  alt={comment.authorName}
+                                                  className="size-7 rounded-full object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
+                                                />
+                                              ) : (
+                                                <span className="grid size-7 place-items-center rounded-full bg-primary/10 text-xs font-black text-primary group-hover:bg-primary group-hover:text-white transition">
+                                                  {comment.authorName.slice(0, 1)}
+                                                </span>
+                                              )}
+                                              <span className="font-extrabold text-sm text-slate-950 dark:text-white group-hover:text-primary transition inline-flex items-center gap-1.5">
+                                                {comment.authorName}
+                                                {(comment.premium || comment.tutorVerified || (comment.authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
+                                                  <span title="Verified Member" className="text-primary shrink-0">
+                                                    <BadgeCheck className="size-3.5" />
+                                                  </span>
+                                                )}
                                               </span>
-                                            )}
-                                          </span>
+                                            </div>
+                                            <span className="text-xs font-medium text-muted-foreground shrink-0">
+                                              {new Date(comment.createdAt).toLocaleDateString(undefined, {
+                                                month: "short",
+                                                day: "numeric",
+                                              })}
+                                            </span>
+                                          </div>
+                                          <p className="mt-2.5 text-sm leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
+                                            {comment.text}
+                                          </p>
+
+                                          {/* COMMENT ACTIONS: LIKE, DISLIKE, REPLY */}
+                                          <div className="mt-3 flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-xs">
+                                            {/* Like Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleToggleCommentReaction(row.id, comment.id, "like")}
+                                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                                                hasLikedComment
+                                                  ? "bg-primary/10 text-primary border border-primary/20 font-extrabold"
+                                                  : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                                              }`}
+                                              title="Like / Helpful solution"
+                                            >
+                                              <ThumbsUp className={`size-3.5 ${hasLikedComment ? "fill-primary text-primary" : ""}`} />
+                                              <span>{commentLikes.length > 0 ? commentLikes.length : "Helpful"}</span>
+                                            </button>
+
+                                            {/* Dislike Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => void handleToggleCommentReaction(row.id, comment.id, "dislike")}
+                                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                                                hasDislikedComment
+                                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 font-extrabold"
+                                                  : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                                              }`}
+                                              title="Dislike / Unhelpful"
+                                            >
+                                              <ThumbsDown className={`size-3.5 ${hasDislikedComment ? "fill-rose-500 text-rose-500" : ""}`} />
+                                              <span>{commentDislikes.length > 0 ? commentDislikes.length : "Dislike"}</span>
+                                            </button>
+
+                                            {/* Reply Toggle Button */}
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setActiveReplyCommentId(activeReplyCommentId === comment.id ? null : comment.id);
+                                              }}
+                                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                                                activeReplyCommentId === comment.id
+                                                  ? "bg-primary/10 text-primary"
+                                                  : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+                                              }`}
+                                              title="Reply to this solution"
+                                            >
+                                              <Reply className="size-3.5" />
+                                              <span>Reply</span>
+                                              {commentReplies.length > 0 && (
+                                                <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 text-[10px] font-black text-slate-700 dark:text-slate-300">
+                                                  {commentReplies.length}
+                                                </span>
+                                              )}
+                                            </button>
+                                          </div>
+
+                                          {/* Inline Reply Input Form */}
+                                          {activeReplyCommentId === comment.id && (
+                                            <form
+                                              onSubmit={(e) => {
+                                                e.preventDefault();
+                                                void handleAddReply(row.id, comment.id);
+                                              }}
+                                              className="mt-2.5 p-3 rounded-xl border border-primary/30 bg-primary-soft/30 dark:bg-slate-850 space-y-2 animate-in fade-in"
+                                            >
+                                              <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                                <span className="flex items-center gap-1 font-semibold">
+                                                  <CornerDownRight className="size-3 text-primary" />
+                                                  Replying to <strong className="text-slate-800 dark:text-slate-200">@{comment.authorName}</strong>
+                                                </span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setActiveReplyCommentId(null)}
+                                                  className="hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer font-bold"
+                                                >
+                                                  Cancel
+                                                </button>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                <input
+                                                  type="text"
+                                                  required
+                                                  autoFocus
+                                                  value={replyInputs[comment.id] || ""}
+                                                  onChange={(e) =>
+                                                    setReplyInputs((prev) => ({
+                                                      ...prev,
+                                                      [comment.id]: e.target.value,
+                                                    }))
+                                                  }
+                                                  placeholder={`Write a reply to @${comment.authorName}...`}
+                                                  className="h-9 flex-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs outline-none focus:border-primary text-slate-900 dark:text-white"
+                                                />
+                                                <button
+                                                  type="submit"
+                                                  className="h-9 px-3.5 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary-hover transition cursor-pointer shadow-xs"
+                                                >
+                                                  Reply
+                                                </button>
+                                              </div>
+                                            </form>
+                                          )}
+
+                                          {/* Nested Replies Thread */}
+                                          {commentReplies.length > 0 && (
+                                            <div className="mt-3 pl-3.5 border-l-2 border-primary/20 dark:border-primary/30 space-y-2">
+                                              {commentReplies.map((reply) => {
+                                                const replyLikes = Array.isArray(reply.likes) ? reply.likes : [];
+                                                const replyDislikes = Array.isArray(reply.dislikes) ? reply.dislikes : [];
+                                                const hasLikedReply = Boolean(user && replyLikes.includes(user.uid));
+                                                const hasDislikedReply = Boolean(user && replyDislikes.includes(user.uid));
+
+                                                return (
+                                                  <div
+                                                    key={reply.id}
+                                                    className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850/80 p-3 text-xs shadow-2xs"
+                                                  >
+                                                    <div className="flex items-center justify-between gap-2">
+                                                      <div
+                                                        onClick={() => {
+                                                          if (reply.authorId) {
+                                                            setViewingProfile({
+                                                              uid: reply.authorId,
+                                                              id: reply.authorId,
+                                                              displayName: reply.authorName || "Community Member",
+                                                              photoURL: reply.authorPhoto || null,
+                                                              role: "MEMBER",
+                                                              bio: `Reply: "${reply.text}"`,
+                                                            });
+                                                          }
+                                                        }}
+                                                        className="flex items-center gap-2 cursor-pointer group"
+                                                      >
+                                                        {reply.authorPhoto ? (
+                                                          <img
+                                                            src={reply.authorPhoto}
+                                                            alt={reply.authorName}
+                                                            className="size-6 rounded-full object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
+                                                          />
+                                                        ) : (
+                                                          <span className="grid size-6 place-items-center rounded-full bg-primary/10 text-[10px] font-black text-primary group-hover:bg-primary group-hover:text-white transition">
+                                                            {reply.authorName.slice(0, 1)}
+                                                          </span>
+                                                        )}
+                                                        <span className="font-bold text-xs text-slate-950 dark:text-white group-hover:text-primary transition inline-flex items-center gap-1">
+                                                          {reply.authorName}
+                                                          {(reply.premium || reply.tutorVerified || (reply.authorId === user?.uid && (profile?.premium || profile?.tutorVerified))) && (
+                                                            <span title="Verified Member" className="text-primary shrink-0">
+                                                              <BadgeCheck className="size-3" />
+                                                            </span>
+                                                          )}
+                                                        </span>
+                                                      </div>
+                                                      <span className="text-[10px] text-muted-foreground">
+                                                        {new Date(reply.createdAt).toLocaleDateString(undefined, {
+                                                          month: "short",
+                                                          day: "numeric",
+                                                        })}
+                                                      </span>
+                                                    </div>
+
+                                                    <p className="mt-1.5 text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-normal">
+                                                      {reply.text}
+                                                    </p>
+
+                                                    <div className="mt-2 flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => void handleToggleReplyReaction(row.id, comment.id, reply.id, "like")}
+                                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                                                          hasLikedReply
+                                                            ? "bg-primary/10 text-primary font-bold"
+                                                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                                                        }`}
+                                                        title="Like reply"
+                                                      >
+                                                        <ThumbsUp className={`size-3 ${hasLikedReply ? "fill-primary text-primary" : ""}`} />
+                                                        <span>{replyLikes.length > 0 ? replyLikes.length : ""}</span>
+                                                      </button>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => void handleToggleReplyReaction(row.id, comment.id, reply.id, "dislike")}
+                                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-semibold transition cursor-pointer ${
+                                                          hasDislikedReply
+                                                            ? "bg-rose-500/10 text-rose-600 font-bold"
+                                                            : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                                                        }`}
+                                                        title="Dislike reply"
+                                                      >
+                                                        <ThumbsDown className={`size-3 ${hasDislikedReply ? "fill-rose-500 text-rose-500" : ""}`} />
+                                                        <span>{replyDislikes.length > 0 ? replyDislikes.length : ""}</span>
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
                                         </div>
-                                        <span className="text-xs font-medium text-muted-foreground shrink-0">
-                                          {new Date(comment.createdAt).toLocaleDateString(undefined, {
-                                            month: "short",
-                                            day: "numeric",
-                                          })}
-                                        </span>
-                                      </div>
-                                      <p className="mt-2.5 text-sm leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
-                                        {comment.text}
-                                      </p>
-                                    </div>
-                                  ))}
-                                </div>
+                                      );
+                                    })}
+                                  </div>
                               )}
 
                               {/* Input box to add a solution */}
