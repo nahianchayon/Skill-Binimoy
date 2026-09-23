@@ -114,11 +114,7 @@ async function ensureProfile(user: User, displayName?: string) {
     const existing = await getDoc(profileRef);
     if (existing.exists()) {
       const existingData = existing.data();
-      const updates: Record<string, unknown> = {
-        uid: user.uid,
-        email: user.email,
-        updatedAt: serverTimestamp(),
-      };
+      const updates: Record<string, unknown> = {};
       if (!existingData["displayName"] && (displayName || user.displayName)) {
         updates["displayName"] = displayName || user.displayName;
       }
@@ -129,7 +125,11 @@ async function ensureProfile(user: User, displayName?: string) {
         updates["premium"] = true;
         updates["tutorVerified"] = true;
       }
-      await setDoc(profileRef, updates, { merge: true });
+      // Only write to Firestore if something actually changed
+      if (Object.keys(updates).length > 0) {
+        updates["updatedAt"] = serverTimestamp();
+        await setDoc(profileRef, updates, { merge: true });
+      }
       return;
     }
     await setDoc(
@@ -171,11 +171,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     let unsubProfile: (() => void) | undefined;
-    const unsubAuth = onAuthStateChanged(auth, async (nextUser) => {
+    const unsubAuth = onAuthStateChanged(auth, (nextUser) => {
       unsubProfile?.();
       setUser(nextUser);
       if (nextUser) {
-        await ensureProfile(nextUser);
+        // Fast local seed so UI never blocks or displays loading spinners
+        const cachedStr =
+          typeof window !== "undefined"
+            ? localStorage.getItem(`sb_user_profile_${nextUser.uid}`)
+            : null;
+        if (cachedStr) {
+          try {
+            setProfile(JSON.parse(cachedStr) as UserProfile);
+          } catch {
+            // ignore
+          }
+        } else {
+          setProfile({
+            uid: nextUser.uid,
+            email: nextUser.email,
+            displayName:
+              nextUser.displayName || nextUser.email?.split("@")[0] || "Skill Binimoy member",
+            photoURL: nextUser.photoURL || null,
+            role: "USER",
+            premium:
+              typeof window !== "undefined" &&
+              localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true",
+            tutorVerified:
+              typeof window !== "undefined" &&
+              localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true",
+          });
+        }
+        // Unblock the page immediately
+        setLoading(false);
+
+        // Run profile check asynchronously in background
+        void ensureProfile(nextUser);
+
         if (db) {
           unsubProfile = onSnapshot(
             doc(db, "users", nextUser.uid),
@@ -185,11 +217,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const isCachedPremium =
                   typeof window !== "undefined" &&
                   localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true";
-                setProfile({
+                const fresh: UserProfile = {
                   ...data,
                   premium: Boolean(data.premium || isCachedPremium),
                   tutorVerified: Boolean(data.tutorVerified || data.premium || isCachedPremium),
-                });
+                };
+                setProfile(fresh);
+                if (typeof window !== "undefined") {
+                  try {
+                    localStorage.setItem(`sb_user_profile_${nextUser.uid}`, JSON.stringify(fresh));
+                  } catch {
+                    // ignore
+                  }
+                }
               }
             },
             (err) => console.warn("User profile snapshot notice:", err),
@@ -197,8 +237,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {

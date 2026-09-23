@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { where } from "firebase/firestore";
+import { limit, where } from "firebase/firestore";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { useAuth } from "@/lib/auth";
 import { createRecord, deleteRecord, watchRecords } from "@/lib/firestore";
@@ -82,12 +82,12 @@ function ExplorePage() {
   const [broadcasting, setBroadcasting] = useState(false);
 
   useEffect(() => {
-    const stopUsers = watchRecords<Person>("users", [], setPeople, (err) =>
+    const stopUsers = watchRecords<Person>("users", [limit(60)], setPeople, (err) =>
       setNotice(err.message),
     );
     const stopPosts = watchRecords<ExchangePost>(
       "posts",
-      [],
+      [limit(60)],
       (posts) => {
         setExchangePosts(
           posts.filter(

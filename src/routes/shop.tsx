@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { where } from "firebase/firestore";
+import { limit, where } from "firebase/firestore";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { useAuth } from "@/lib/auth";
 import { createRecord, watchRecords } from "@/lib/firestore";
@@ -76,7 +76,7 @@ function ShopPage() {
   const [deliveryAddress, setDeliveryAddress] = useState("Dhaka, Bangladesh");
   const [submittingOrder, setSubmittingOrder] = useState(false);
 
-  useEffect(() => watchRecords<Product>("products", [], setProducts), []);
+  useEffect(() => watchRecords<Product>("products", [limit(50)], setProducts), []);
 
   useEffect(() => {
     if (!user) {
@@ -85,7 +85,7 @@ function ShopPage() {
     }
     return watchRecords<CustomerOrder>(
       "orders",
-      [where("userId", "==", user.uid)],
+      [where("userId", "==", user.uid), limit(50)],
       (orders) => {
         const sorted = [...orders].sort(
           (a, b) =>

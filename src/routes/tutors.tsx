@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { limit } from "firebase/firestore";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { createRecord, watchRecords } from "@/lib/firestore";
 import { useAuth } from "@/lib/auth";
@@ -137,9 +138,9 @@ function TutorsPage() {
   }
 
   useEffect(() => {
-    const unsubTutors = watchRecords<Tutor>("tutors", [], setDbTutors);
-    const unsubUsers = watchRecords<AppUser>("users", [], setUsers);
-    const unsubApps = watchRecords<TutorApp>("tutorApplications", [], setApplications);
+    const unsubTutors = watchRecords<Tutor>("tutors", [limit(50)], setDbTutors);
+    const unsubUsers = watchRecords<AppUser>("users", [limit(50)], setUsers);
+    const unsubApps = watchRecords<TutorApp>("tutorApplications", [limit(50)], setApplications);
     return () => {
       unsubTutors();
       unsubUsers();

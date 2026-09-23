@@ -42,24 +42,60 @@ export function WorkspaceShell({
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [activeExchangesCount, setActiveExchangesCount] = useState(0);
+  const [incomingCall, setIncomingCall] = useState<{
+    id: string;
+    callId: string;
+    callerName: string;
+    callerPhoto?: string | undefined;
+  } | null>(null);
 
-  // Live unread notifications listener
+  // Unified live notifications & incoming video call listener (prevents duplicate Firestore queries)
   useEffect(() => {
     if (!user || !db) {
       setUnreadNotifications(0);
+      setIncomingCall(null);
       return;
     }
+
+    const isCallPage =
+      typeof window !== "undefined" && window.location.pathname.startsWith("/video-call");
+
     const q = query(collection(db, "notifications"), where("recipientId", "==", user.uid));
     return onSnapshot(
       q,
       (snapshot) => {
-        const count = snapshot.docs.filter((d) => {
+        let count = 0;
+        let foundCall: {
+          id: string;
+          callId: string;
+          callerName: string;
+          callerPhoto?: string | undefined;
+        } | null = null;
+
+        snapshot.docs.forEach((d) => {
           const data = d.data();
-          return data["status"] === "PENDING" || data["status"] === "UNREAD";
-        }).length;
+          const isPending = data["status"] === "PENDING" || data["status"] === "UNREAD";
+          if (isPending) {
+            count++;
+            if (!isCallPage && data["type"] === "VIDEO_CALL_INVITE" && data["callId"]) {
+              foundCall = {
+                id: d.id,
+                callId: data["callId"] as string,
+                callerName: (data["callerName"] as string) || "A skill partner",
+                callerPhoto: data["callerPhoto"] as string | undefined,
+              };
+            }
+          }
+        });
+
         setUnreadNotifications(count);
+        setIncomingCall(foundCall);
       },
-      () => setUnreadNotifications(0),
+      () => {
+        setUnreadNotifications(0);
+        setIncomingCall(null);
+      },
     );
   }, [user]);
 
@@ -91,8 +127,6 @@ export function WorkspaceShell({
   }, [user]);
 
   // Live active exchanges count listener
-  const [activeExchangesCount, setActiveExchangesCount] = useState(0);
-
   useEffect(() => {
     if (!user || !db) {
       setActiveExchangesCount(0);
@@ -112,67 +146,6 @@ export function WorkspaceShell({
         setActiveExchangesCount(count);
       },
       () => setActiveExchangesCount(0),
-    );
-  }, [user]);
-
-  // Live incoming video call listener
-  const [incomingCall, setIncomingCall] = useState<{
-    id: string;
-    callId: string;
-    callerName: string;
-    callerPhoto?: string | undefined;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!user || !db) {
-      setIncomingCall(null);
-      return;
-    }
-
-    // Do not show incoming call modal if already inside the video-call page
-    if (typeof window !== "undefined" && window.location.pathname.startsWith("/video-call")) {
-      setIncomingCall(null);
-      return;
-    }
-
-    const q = query(
-      collection(db, "notifications"),
-      where("recipientId", "==", user.uid),
-      where("type", "==", "VIDEO_CALL_INVITE"),
-    );
-
-    return onSnapshot(
-      q,
-      (snapshot) => {
-        const pending = snapshot.docs
-          .map((d) => {
-            const data = d.data();
-            return {
-              id: d.id,
-              status: data["status"] as string | undefined,
-              callId: data["callId"] as string | undefined,
-              callerName: data["callerName"] as string | undefined,
-              callerPhoto: data["callerPhoto"] as string | undefined,
-            };
-          })
-          .filter((d) => d.status === "UNREAD" || d.status === "PENDING");
-
-        if (pending.length > 0) {
-          const latest = pending[pending.length - 1];
-          if (latest && latest.callId) {
-            console.log("[VIDEO-CALL] Call invitation received:", latest);
-            setIncomingCall({
-              id: latest.id,
-              callId: latest.callId,
-              callerName: latest.callerName || "A skill partner",
-              callerPhoto: latest.callerPhoto,
-            });
-            return;
-          }
-        }
-        setIncomingCall(null);
-      },
-      () => setIncomingCall(null),
     );
   }, [user]);
 

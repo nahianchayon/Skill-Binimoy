@@ -26,7 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query as fsQuery, where as fsWhere } from "firebase/firestore";
+import { collection, limit, onSnapshot, query as fsQuery, where as fsWhere } from "firebase/firestore";
 import { useAuth } from "@/lib/auth";
 import { createRecord, orderBy, watchRecords, where } from "@/lib/firestore";
 import { db } from "@/lib/firebase";
@@ -158,7 +158,7 @@ function Dashboard() {
     if (!user) return;
     return watchRecords<Post>(
       "posts",
-      [where("authorId", "==", user.uid), orderBy("createdAt", "desc")],
+      [where("authorId", "==", user.uid), orderBy("createdAt", "desc"), limit(20)],
       setPosts,
       (error) => setMessage(error.message),
     );
@@ -169,6 +169,7 @@ function Dashboard() {
     const q = fsQuery(
       collection(db, "exchanges"),
       fsWhere("participantIds", "array-contains", user.uid),
+      limit(20),
     );
     return onSnapshot(
       q,

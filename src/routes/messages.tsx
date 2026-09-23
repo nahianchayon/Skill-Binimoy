@@ -135,6 +135,7 @@ function MessagesPage() {
   const [notice, setNotice] = useState("");
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const isInitialLoadRef = useRef(true);
+  const markedMessagesRef = useRef<Set<string>>(new Set());
 
   // Exchange and Shared Todo List State in Inbox
   const [activeExchangeId, setActiveExchangeId] = useState<string | null>(null);
@@ -179,9 +180,10 @@ function MessagesPage() {
     }
   }, [messages]);
 
-  // Reset initial load flag when user selects a conversation
+  // Reset initial load flag and marked messages cache when user selects a conversation
   useEffect(() => {
     isInitialLoadRef.current = true;
+    markedMessagesRef.current.clear();
   }, [selected?.id]);
 
   // Real-time conversations listener
@@ -223,11 +225,16 @@ function MessagesPage() {
     if (!selectedId || !user || !db || messages.length === 0) return;
     const database = db;
     const unreadMessages = messages.filter(
-      (m) => m.senderId !== user.uid && (!m.readBy || !m.readBy.includes(user.uid)),
+      (m) =>
+        m.id &&
+        m.senderId !== user.uid &&
+        (!m.readBy || !m.readBy.includes(user.uid)) &&
+        !markedMessagesRef.current.has(m.id),
     );
     if (unreadMessages.length === 0) return;
 
     unreadMessages.forEach((msg) => {
+      markedMessagesRef.current.add(msg.id);
       updateDoc(doc(database, "conversations", selectedId, "messages", msg.id), {
         readBy: arrayUnion(user.uid),
       }).catch(console.warn);
