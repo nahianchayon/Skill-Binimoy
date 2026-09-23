@@ -143,9 +143,6 @@ function MessagesPage() {
   const [activeTasks, setActiveTasks] = useState<ExchangeTask[]>([]);
   const [isTodoExpanded, setIsTodoExpanded] = useState(true);
   const [todoFilter, setTodoFilter] = useState<"ALL" | "PENDING" | "COMPLETED">("ALL");
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
-  const [isAddingTask, setIsAddingTask] = useState(false);
 
   // Partner Profile Modal State
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
@@ -451,80 +448,6 @@ function MessagesPage() {
         ),
       );
       setNotice("Could not update task status. Please check your connection.");
-    }
-  }
-
-  async function handleAddInboxTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user || !newTaskTitle.trim()) return;
-
-    let targetExchangeId = activeExchangeId;
-    if (!targetExchangeId && selected && selectedPartner?.partnerId) {
-      targetExchangeId = await getOrCreateExchangeForUsers({
-        currentUserId: user.uid,
-        currentUserName: profile?.displayName || user.displayName || "Member",
-        currentUserPhoto: profile?.photoURL || user.photoURL,
-        partnerId: selectedPartner.partnerId,
-        partnerName: selectedPartner.name,
-        partnerPhoto: selectedPartner.photoURL,
-        conversationId: selected.id,
-      });
-      if (targetExchangeId) {
-        setActiveExchangeId(targetExchangeId);
-      }
-    }
-
-    if (!targetExchangeId) {
-      setNotice("Active exchange not found yet. Please wait a moment or send a message.");
-      return;
-    }
-
-    const title = newTaskTitle.trim();
-    let assigneeName = "Both Members";
-    if (selectedPartner) {
-      if (newTaskAssignee === user.uid) {
-        assigneeName = profile?.displayName || user.displayName || "You";
-      } else if (newTaskAssignee === selectedPartner.partnerId) {
-        assigneeName = selectedPartner.name;
-      }
-    }
-
-    // Optimistic task creation
-    const tempId = `temp_${Date.now()}`;
-    const optimisticTask: ExchangeTask = {
-      id: tempId,
-      exchangeId: targetExchangeId,
-      title,
-      createdBy: user.uid,
-      createdByName: profile?.displayName || user.displayName || "Member",
-      assignedTo: newTaskAssignee,
-      assignedToName: assigneeName,
-      status: "PENDING",
-      completed: false,
-      createdAt: new Date(),
-    };
-
-    setActiveTasks((prev) => [...prev, optimisticTask]);
-    setNewTaskTitle("");
-    setIsAddingTask(false);
-
-    try {
-      await createExchangeTask({
-        exchangeId: targetExchangeId,
-        title,
-        createdBy: user.uid,
-        createdByName: profile?.displayName || user.displayName || "Member",
-        assignedTo: newTaskAssignee,
-        assignedToName: assigneeName,
-      });
-      const updated = getLocalExchangeTasks(targetExchangeId);
-      if (updated.length > 0) {
-        setActiveTasks(updated);
-      }
-    } catch (err) {
-      console.error("Failed to add task:", err);
-      setActiveTasks((prev) => prev.filter((t) => t.id !== tempId));
-      setNotice("Failed to save new task. Please try again.");
     }
   }
 
@@ -852,18 +775,6 @@ function MessagesPage() {
                           />
                         </div>
                       </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsTodoExpanded(true);
-                          setIsAddingTask(!isAddingTask);
-                        }}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 dark:bg-primary/20 hover:bg-primary/20 text-primary dark:text-blue-400 transition cursor-pointer"
-                        title="Add Shared Task"
-                      >
-                        <Plus className="size-4" />
-                      </button>
                     </div>
                   </div>
 
@@ -907,50 +818,13 @@ function MessagesPage() {
                             Done ({completedTasks})
                           </button>
                         </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setIsAddingTask(!isAddingTask)}
-                          className="text-[11px] font-bold text-primary dark:text-blue-400 hover:underline cursor-pointer"
-                        >
-                          {isAddingTask ? "Cancel" : "+ Add Task"}
-                        </button>
                       </div>
-
-                      {/* Add Task Input Form */}
-                      {isAddingTask && (
-                        <form onSubmit={handleAddInboxTask} className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Add task title (e.g. review code together)..."
-                            value={newTaskTitle}
-                            onChange={(e) => setNewTaskTitle(e.target.value)}
-                            className="flex-1 min-w-[160px] text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-primary"
-                          />
-                          <select
-                            value={newTaskAssignee}
-                            onChange={(e) => setNewTaskAssignee(e.target.value)}
-                            className="text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-slate-900 dark:text-white outline-none"
-                          >
-                            <option value="BOTH">Both</option>
-                            <option value={user?.uid || "ME"}>You</option>
-                            {selectedPartner && <option value={selectedPartner.partnerId}>{selectedPartner.name}</option>}
-                          </select>
-                          <button
-                            type="submit"
-                            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer shadow-2xs"
-                          >
-                            Save
-                          </button>
-                        </form>
-                      )}
 
                       {/* Task List */}
                       {filteredTasks.length === 0 ? (
                         <div className="py-3 text-center text-xs text-slate-500 dark:text-slate-400 font-medium">
                           {todoFilter === "ALL"
-                            ? "No tasks yet. Click '+ Add Task' to add learning milestones!"
+                            ? "No tasks yet."
                             : todoFilter === "PENDING"
                               ? "All tasks are completed! Awesome work! 🎉"
                               : "No tasks completed yet."}
