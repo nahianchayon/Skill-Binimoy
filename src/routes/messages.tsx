@@ -21,14 +21,16 @@ import {
   arrayUnion,
   collection,
   doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { ProtectedView } from "@/components/common/ProtectedView";
 import { ProfileModal, type ProfileData } from "@/components/profile/ProfileModal";
@@ -63,6 +65,7 @@ type Conversation = {
   exchangeProgress?: number | undefined;
   exchangeTasksCompleted?: number | undefined;
   exchangeTasksTotal?: number | undefined;
+  exchangeTasks?: ExchangeTask[] | undefined;
 };
 
 type Message = {
@@ -151,6 +154,17 @@ function MessagesPage() {
   // Partner Profile Modal State
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
 
+  function selectConversation(conv: Conversation | null) {
+    setSelected(conv);
+    if (typeof window !== "undefined") {
+      if (conv?.id) {
+        sessionStorage.setItem("skill_binimoy_active_conversation_id", conv.id);
+      } else {
+        sessionStorage.removeItem("skill_binimoy_active_conversation_id");
+      }
+    }
+  }
+
   function handleOpenPartnerProfile(
     partnerId: string,
     partnerName: string,
@@ -200,7 +214,17 @@ function MessagesPage() {
         const list = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Conversation);
         setConversations(list);
         setSelected((currentSelected) => {
-          if (!currentSelected) return null;
+          if (!currentSelected) {
+            const savedConvId =
+              typeof window !== "undefined"
+                ? sessionStorage.getItem("skill_binimoy_active_conversation_id")
+                : null;
+            if (savedConvId) {
+              const found = list.find((c) => c.id === savedConvId);
+              if (found) return found;
+            }
+            return list[0] ?? null;
+          }
           return list.find((c) => c.id === currentSelected.id) ?? currentSelected;
         });
       },
@@ -249,39 +273,65 @@ function MessagesPage() {
 
   const selectedPartner = selected ? getPartnerInfo(selected, user?.uid) : null;
 
-  // Sync exchangeId when conversation is selected
+  // Deterministic canonical exchange ID for the selected conversation
+  const canonicalExchangeId = useMemo(() => {
+    if (!selected) return null;
+    return selected.exchangeId || `exchange_${selected.id}`;
+  }, [selected?.id, selected?.exchangeId]);
+
+  // Sync exchangeId and workspace when conversation is selected
   useEffect(() => {
-    if (!user || !selected || !selectedPartner || !selectedPartner.partnerId) {
+    if (!user || !selected || !selectedPartner || !selectedPartner.partnerId || !canonicalExchangeId) {
       setActiveExchangeId(null);
       setActiveExchange(null);
       setActiveTasks([]);
       return;
     }
 
-    let isMounted = true;
+    setActiveExchangeId(canonicalExchangeId);
 
-    if (selected.exchangeId) {
-      setActiveExchangeId(selected.exchangeId);
-    } else {
-      void getOrCreateExchangeForUsers({
-        currentUserId: user.uid,
-        currentUserName: profile?.displayName || user.displayName || "Member",
-        currentUserPhoto: profile?.photoURL || user.photoURL,
-        partnerId: selectedPartner.partnerId,
-        partnerName: selectedPartner.name,
-        partnerPhoto: selectedPartner.photoURL,
-        conversationId: selected.id,
-      }).then((id) => {
-        if (isMounted && id) {
-          setActiveExchangeId(id);
-        }
-      });
+    // 1. Ensure conversation document has exchangeId in Firestore
+    if (!selected.exchangeId && db) {
+      void updateDoc(doc(db, "conversations", selected.id), {
+        exchangeId: canonicalExchangeId,
+      }).catch(console.warn);
     }
 
-    return () => {
-      isMounted = false;
-    };
-  }, [user, selected?.id, selected?.exchangeId, selectedPartner?.partnerId, profile?.displayName, profile?.photoURL]);
+    // 2. Ensure exchange document exists in Firestore for both partners
+    if (db) {
+      const exchangeDocRef = doc(db, "exchanges", canonicalExchangeId);
+      void getDoc(exchangeDocRef).then((snap) => {
+        if (!snap.exists()) {
+          void setDoc(
+            exchangeDocRef,
+            {
+              id: canonicalExchangeId,
+              conversationId: selected.id,
+              participantIds: [user.uid, selectedPartner.partnerId],
+              participants: {
+                [user.uid]: {
+                  displayName: profile?.displayName || user.displayName || "Member",
+                  photoURL: profile?.photoURL || user.photoURL || null,
+                },
+                [selectedPartner.partnerId]: {
+                  displayName: selectedPartner.name,
+                  photoURL: selectedPartner.photoURL || null,
+                },
+              },
+              title: `Skill Exchange: ${profile?.displayName || user.displayName || "Member"} & ${selectedPartner.name}`,
+              status: "ACTIVE",
+              progress: 0,
+              totalTasks: 3,
+              completedTasks: 0,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true },
+          );
+        }
+      }).catch(console.warn);
+    }
+  }, [user?.uid, selected?.id, selected?.exchangeId, canonicalExchangeId, selectedPartner?.partnerId, profile?.displayName, profile?.photoURL]);
 
   // Real-time listener for exchange metadata
   useEffect(() => {
@@ -319,13 +369,19 @@ function MessagesPage() {
 
   // Real-time listener for exchange tasks
   useEffect(() => {
-    if (!activeExchangeId) {
+    if (!activeExchangeId || !selected) {
       setActiveTasks([]);
       return;
     }
 
-    // 1. Instantly load from local storage or generate default starter tasks
+    // 1. Instantly load from conversation document, local storage, or default starters
+    const convTasks = selected.exchangeTasks || [];
     let cached = getLocalExchangeTasks(activeExchangeId);
+    if (cached.length === 0 && convTasks.length > 0) {
+      cached = convTasks;
+      saveLocalExchangeTasks(activeExchangeId, convTasks);
+    }
+
     if (cached.length === 0 && user) {
       const starters = getDefaultStarterTasks(
         activeExchangeId,
@@ -336,14 +392,26 @@ function MessagesPage() {
       );
       saveLocalExchangeTasks(activeExchangeId, starters);
       cached = starters;
+
+      // Seed starter tasks directly to conversation in Firestore for immediate cross-account availability
+      if (db && selected.id) {
+        void updateDoc(doc(db, "conversations", selected.id), {
+          exchangeTasks: starters,
+          exchangeProgress: 0,
+          exchangeTasksCompleted: 0,
+          exchangeTasksTotal: starters.length,
+          exchangeId: activeExchangeId,
+        }).catch(console.warn);
+      }
     }
+
     if (cached.length > 0) {
       setActiveTasks(cached);
     }
 
     if (!db) return;
 
-    // 2. Query Firestore without orderBy constraint for 100% reliability
+    // 2. Query Firestore exchange tasks subcollection
     const q = collection(db, "exchanges", activeExchangeId, "tasks");
 
     return onSnapshot(
@@ -371,13 +439,18 @@ function MessagesPage() {
             };
           });
 
-          // Merge with local tasks so newly saved tasks are NEVER wiped out by snapshot latency
+          // Merge with local tasks and conversation tasks
           const localTasks = getLocalExchangeTasks(activeExchangeId);
+          const currentConvTasks = selected?.exchangeTasks || [];
           const remoteIds = new Set(loaded.map((t) => t.id));
-          const combined = [
-            ...loaded,
+          const unmergedLocals = [
             ...localTasks.filter((lt) => !remoteIds.has(lt.id)),
+            ...currentConvTasks.filter((ct) => !remoteIds.has(ct.id)),
           ];
+          const unmergedMap = new Map<string, ExchangeTask>();
+          unmergedLocals.forEach((t) => unmergedMap.set(t.id, t));
+
+          const combined = [...loaded, ...Array.from(unmergedMap.values())];
 
           combined.sort((a, b) => {
             const aTime = a.createdAt ? new Date(a.createdAt as string).getTime() : 0;
@@ -387,30 +460,70 @@ function MessagesPage() {
 
           setActiveTasks(combined);
           saveLocalExchangeTasks(activeExchangeId, combined);
+
+          // Keep conversation document in Firestore updated with full task array
+          if (db && selected?.id && combined.length > 0) {
+            const cCount = combined.filter((t) => t.completed || t.status === "COMPLETED").length;
+            const tCount = combined.length;
+            const pVal = Math.round((cCount / tCount) * 100);
+            void updateDoc(doc(db, "conversations", selected.id), {
+              exchangeTasks: combined,
+              exchangeProgress: pVal,
+              exchangeTasksCompleted: cCount,
+              exchangeTasksTotal: tCount,
+            }).catch(console.warn);
+          }
         } else {
-          // If Firestore is empty, maintain local starter tasks
+          // If Firestore subcollection is empty, use conversation tasks or local tasks
           const localTasks = getLocalExchangeTasks(activeExchangeId);
-          if (localTasks.length > 0) {
-            setActiveTasks(localTasks);
+          const currentConvTasks = selected?.exchangeTasks || [];
+          const fallback = currentConvTasks.length > 0 ? currentConvTasks : localTasks;
+          if (fallback.length > 0) {
+            setActiveTasks(fallback);
           }
         }
       },
       (err) => {
         console.warn("Notice: Using local exchange tasks fallback:", err);
         const localTasks = getLocalExchangeTasks(activeExchangeId);
-        if (localTasks.length > 0) {
-          setActiveTasks(localTasks);
+        const currentConvTasks = selected?.exchangeTasks || [];
+        const fallback = currentConvTasks.length > 0 ? currentConvTasks : localTasks;
+        if (fallback.length > 0) {
+          setActiveTasks(fallback);
         }
       },
     );
-  }, [activeExchangeId, user?.uid, selectedPartner?.partnerId, profile?.displayName]);
+  }, [activeExchangeId, selected?.id, user?.uid, selectedPartner?.partnerId, profile?.displayName]);
+
+  // Sync tasks when partner modifies conversation exchangeTasks
+  useEffect(() => {
+    if (selected?.exchangeTasks && selected.exchangeTasks.length > 0 && activeExchangeId) {
+      const convTasks = selected.exchangeTasks;
+      setActiveTasks((prev) => {
+        const prevIds = new Set(prev.map((t) => t.id));
+        const convIds = new Set(convTasks.map((t) => t.id));
+        const hasDiff =
+          convTasks.length !== prev.length ||
+          convTasks.some((ct) => {
+            const match = prev.find((p) => p.id === ct.id);
+            return !match || match.completed !== ct.completed;
+          });
+        if (hasDiff) {
+          const merged = [...convTasks, ...prev.filter((p) => !convIds.has(p.id))];
+          saveLocalExchangeTasks(activeExchangeId, merged);
+          return merged;
+        }
+        return prev;
+      });
+    }
+  }, [selected?.exchangeTasks, activeExchangeId]);
 
   // Dynamic progress calculation
   const totalTasks = activeTasks.length;
   const completedTasks = activeTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
   const progressPercent =
     totalTasks === 0
-      ? (activeExchange?.progress ?? 0)
+      ? (selected?.exchangeProgress ?? activeExchange?.progress ?? 0)
       : Math.round((completedTasks / totalTasks) * 100);
 
   const filteredTasks = activeTasks.filter((t) => {
@@ -420,24 +533,42 @@ function MessagesPage() {
   });
 
   async function handleToggleInboxTask(task: ExchangeTask) {
-    if (!user) return;
-    const exchangeIdToUse = activeExchangeId || task.exchangeId;
-    if (!exchangeIdToUse) return;
+    if (!user || !selected || !canonicalExchangeId) return;
+    const exchangeIdToUse = canonicalExchangeId;
 
     const nextCompleted = !task.completed;
-    // 1. Optimistic local update so UI toggles instantly
-    setActiveTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              completed: nextCompleted,
-              status: nextCompleted ? "COMPLETED" : "PENDING",
-            }
-          : t,
-      ),
+    const nextTasks = activeTasks.map((t) =>
+      t.id === task.id
+        ? {
+            ...t,
+            completed: nextCompleted,
+            status: (nextCompleted ? "COMPLETED" : "PENDING") as "COMPLETED" | "PENDING",
+            completedAt: nextCompleted ? new Date().toISOString() : undefined,
+            completedBy: nextCompleted ? user.uid : undefined,
+          }
+        : t,
     );
 
+    // 1. Optimistic local update
+    setActiveTasks(nextTasks);
+    saveLocalExchangeTasks(exchangeIdToUse, nextTasks);
+
+    // 2. Persist to conversation document in Firestore immediately
+    const nextCompletedCount = nextTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
+    const nextTotalCount = nextTasks.length;
+    const nextProgressVal = nextTotalCount === 0 ? 0 : Math.round((nextCompletedCount / nextTotalCount) * 100);
+
+    if (db) {
+      void updateDoc(doc(db, "conversations", selected.id), {
+        exchangeTasks: nextTasks,
+        exchangeProgress: nextProgressVal,
+        exchangeTasksCompleted: nextCompletedCount,
+        exchangeTasksTotal: nextTotalCount,
+        updatedAt: serverTimestamp(),
+      }).catch(console.warn);
+    }
+
+    // 3. Persist to Firestore exchange subcollection
     try {
       await toggleExchangeTaskCompletion({
         exchangeId: exchangeIdToUse,
@@ -445,41 +576,19 @@ function MessagesPage() {
         completed: nextCompleted,
         completedBy: user.uid,
       });
-      const updated = getLocalExchangeTasks(exchangeIdToUse);
-      if (updated.length > 0) {
-        setActiveTasks(updated);
-      }
     } catch (err) {
-      console.error("Failed to toggle task:", err);
-      // Rollback on error
-      setActiveTasks((prev) =>
-        prev.map((t) =>
-          t.id === task.id
-            ? { ...t, completed: task.completed, status: task.status }
-            : t,
-        ),
-      );
-      setNotice("Could not update task status. Please check your connection.");
+      console.warn("Notice: Task toggled locally (Firestore sync deferred):", err);
     }
   }
 
   async function handleAddInboxTask(e: React.FormEvent) {
     e.preventDefault();
     const title = newTaskTitle.trim();
-    if (!title || !user) return;
+    if (!title || !user || !selected || !canonicalExchangeId) return;
 
     setIsSavingTask(true);
 
-    const targetExchangeId =
-      activeExchangeId ||
-      selected?.exchangeId ||
-      (selected ? `exchange_${selected.id}` : null);
-
-    if (!targetExchangeId) {
-      setIsSavingTask(false);
-      setNotice("Select a conversation to add a task.");
-      return;
-    }
+    const targetExchangeId = canonicalExchangeId;
 
     let assigneeName = "Both Members";
     if (selectedPartner) {
@@ -505,18 +614,35 @@ function MessagesPage() {
     };
 
     // 1. Instantly update UI and localStorage so task appears immediately
-    setActiveTasks((prev) => [...prev, taskObj]);
-    const currentLocals = getLocalExchangeTasks(targetExchangeId);
-    saveLocalExchangeTasks(targetExchangeId, [...currentLocals.filter((t) => t.id !== taskId), taskObj]);
+    const nextTasks = [...activeTasks, taskObj];
+    setActiveTasks(nextTasks);
+    saveLocalExchangeTasks(targetExchangeId, nextTasks);
 
     setNewTaskTitle("");
     setIsAddingTask(false);
     setIsSavingTask(false);
 
-    // 2. Persist to Firestore asynchronously
+    // 2. Persist directly to conversation document in Firestore (instant for both accounts)
+    const nextCompleted = nextTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
+    const nextTotal = nextTasks.length;
+    const nextProgress = nextTotal === 0 ? 0 : Math.round((nextCompleted / nextTotal) * 100);
+
+    if (db) {
+      void updateDoc(doc(db, "conversations", selected.id), {
+        exchangeTasks: nextTasks,
+        exchangeProgress: nextProgress,
+        exchangeTasksCompleted: nextCompleted,
+        exchangeTasksTotal: nextTotal,
+        exchangeId: targetExchangeId,
+        updatedAt: serverTimestamp(),
+      }).catch(console.warn);
+    }
+
+    // 3. Persist to Firestore exchange subcollection & workspace
     try {
       await createExchangeTask({
         exchangeId: targetExchangeId,
+        taskId: taskObj.id,
         title,
         createdBy: user.uid,
         createdByName: profile?.displayName || user.displayName || "Member",
@@ -529,21 +655,34 @@ function MessagesPage() {
   }
 
   async function handleDeleteInboxTask(taskId: string, title: string) {
-    const exchangeIdToUse = activeExchangeId;
-    if (!exchangeIdToUse) return;
+    if (!selected || !canonicalExchangeId) return;
+    const exchangeIdToUse = canonicalExchangeId;
     if (window.confirm(`Delete task "${title}"?`)) {
-      // Optimistic delete
-      setActiveTasks((prev) => prev.filter((t) => t.id !== taskId));
+      const nextTasks = activeTasks.filter((t) => t.id !== taskId);
+      setActiveTasks(nextTasks);
+      saveLocalExchangeTasks(exchangeIdToUse, nextTasks);
+
+      const nextCompletedCount = nextTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
+      const nextTotalCount = nextTasks.length;
+      const nextProgressVal = nextTotalCount === 0 ? 0 : Math.round((nextCompletedCount / nextTotalCount) * 100);
+
+      if (db) {
+        void updateDoc(doc(db, "conversations", selected.id), {
+          exchangeTasks: nextTasks,
+          exchangeProgress: nextProgressVal,
+          exchangeTasksCompleted: nextCompletedCount,
+          exchangeTasksTotal: nextTotalCount,
+          updatedAt: serverTimestamp(),
+        }).catch(console.warn);
+      }
+
       try {
         await deleteExchangeTask({
           exchangeId: exchangeIdToUse,
           taskId,
         });
-        const updated = getLocalExchangeTasks(exchangeIdToUse);
-        setActiveTasks(updated);
       } catch (err) {
-        console.error("Failed to delete task:", err);
-        setNotice("Failed to delete task.");
+        console.warn("Notice: Task deleted locally (Firestore sync deferred):", err);
       }
     }
   }
@@ -665,7 +804,7 @@ function MessagesPage() {
                     >
                       <button
                         type="button"
-                        onClick={() => setSelected(conversation)}
+                        onClick={() => selectConversation(conversation)}
                         className="conversation-item relative flex-1 min-w-0"
                       >
                         <div className="relative shrink-0">
@@ -714,7 +853,7 @@ function MessagesPage() {
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelected(conversation);
+                            selectConversation(conversation);
                             void startVideoCall(conversation);
                           }}
                           className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-400 dark:text-slate-300 opacity-80 sm:opacity-0 group-hover:opacity-100 hover:bg-primary hover:text-white transition cursor-pointer"

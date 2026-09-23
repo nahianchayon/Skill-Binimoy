@@ -40,6 +40,7 @@ export type SkillExchange = {
   progress: number; // 0 to 100
   totalTasks: number;
   completedTasks: number;
+  tasks?: ExchangeTask[] | undefined;
   createdAt?: unknown;
   updatedAt?: unknown;
 };
@@ -206,6 +207,7 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
   if (!exchangeId) return { totalTasks: 0, completedTasks: 0, progress: 0 };
   let totalTasks = 0;
   let completedTasks = 0;
+  const allTasks: ExchangeTask[] = [];
 
   try {
     const database = requireDb();
@@ -214,6 +216,23 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
 
     tasksSnap.docs.forEach((docSnap) => {
       const data = docSnap.data();
+      allTasks.push({
+        id: docSnap.id,
+        exchangeId,
+        title: (data["title"] as string) || "Task",
+        description: data["description"] as string | undefined,
+        createdBy: (data["createdBy"] as string) || "",
+        createdByName: data["createdByName"] as string | undefined,
+        assignedTo: data["assignedTo"] as string | undefined,
+        assignedToName: data["assignedToName"] as string | undefined,
+        status: (data["status"] as "PENDING" | "IN_PROGRESS" | "COMPLETED") || "PENDING",
+        dueDate: data["dueDate"] as string | undefined,
+        completed: data["completed"] === true,
+        completedAt: data["completedAt"],
+        completedBy: data["completedBy"] as string | undefined,
+        createdAt: data["createdAt"],
+        updatedAt: data["updatedAt"],
+      });
       if (data["completed"] === true || data["status"] === "COMPLETED") {
         completedTasks++;
       }
@@ -238,12 +257,18 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
     const exchangeRef = doc(database, "exchanges", exchangeId);
     const exchangeSnap = await getDoc(exchangeRef);
 
+    const localTasks = getLocalExchangeTasks(exchangeId);
+    const tasksToSave = allTasks.length > 0 ? allTasks : localTasks;
+
     const updatePayload: Record<string, unknown> = {
       totalTasks,
       completedTasks,
       progress,
       updatedAt: serverTimestamp(),
     };
+    if (tasksToSave.length > 0) {
+      updatePayload["tasks"] = tasksToSave;
+    }
 
     if (totalTasks > 0 && completedTasks === totalTasks) {
       updatePayload["status"] = "COMPLETED";
@@ -254,15 +279,21 @@ export async function recalculateExchangeProgress(exchangeId: string): Promise<{
     await setDoc(exchangeRef, updatePayload, { merge: true });
 
     // Also update linked conversation if present
-    if (exchangeSnap.exists()) {
-      const convId = exchangeSnap.data()["conversationId"] as string | undefined;
-      if (convId) {
-        await updateDoc(doc(database, "conversations", convId), {
-          exchangeProgress: progress,
-          exchangeTasksCompleted: completedTasks,
-          exchangeTasksTotal: totalTasks,
-        }).catch(console.warn);
+    let convId = exchangeSnap.exists() ? (exchangeSnap.data()["conversationId"] as string | undefined) : undefined;
+    if (!convId && exchangeId.startsWith("exchange_")) {
+      convId = exchangeId.replace("exchange_", "");
+    }
+
+    if (convId) {
+      const convPayload: Record<string, unknown> = {
+        exchangeProgress: progress,
+        exchangeTasksCompleted: completedTasks,
+        exchangeTasksTotal: totalTasks,
+      };
+      if (tasksToSave.length > 0) {
+        convPayload["exchangeTasks"] = tasksToSave;
       }
+      await updateDoc(doc(database, "conversations", convId), convPayload).catch(console.warn);
     }
   } catch (err) {
     console.warn("Failed to update exchange progress metadata:", err);
@@ -615,6 +646,7 @@ export async function createExchangeTask({
   assignedTo,
   assignedToName,
   dueDate,
+  taskId: customTaskId,
 }: {
   exchangeId: string;
   title: string;
@@ -624,12 +656,13 @@ export async function createExchangeTask({
   assignedTo?: string | undefined;
   assignedToName?: string | undefined;
   dueDate?: string | undefined;
+  taskId?: string | undefined;
 }): Promise<string> {
   if (!exchangeId || !title.trim()) return "";
 
-  const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const finalTaskId = customTaskId || `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const taskObj: ExchangeTask = {
-    id: taskId,
+    id: finalTaskId,
     exchangeId,
     title: title.trim(),
     description: description ? description.trim() : "",
@@ -643,14 +676,14 @@ export async function createExchangeTask({
     createdAt: new Date().toISOString(),
   };
 
-  // 1. Immediately store in local storage so it is instant and immune to network/rules failure
+  // 1. Immediately store in local storage deduplicated
   const local = getLocalExchangeTasks(exchangeId);
-  saveLocalExchangeTasks(exchangeId, [...local, taskObj]);
+  saveLocalExchangeTasks(exchangeId, [...local.filter((t) => t.id !== finalTaskId), taskObj]);
 
-  // 2. Persist to Firestore
+  // 2. Persist to Firestore subcollection
   try {
     const database = requireDb();
-    const taskDocRef = doc(database, "exchanges", exchangeId, "tasks", taskId);
+    const taskDocRef = doc(database, "exchanges", exchangeId, "tasks", finalTaskId);
     await setDoc(taskDocRef, {
       ...taskObj,
       createdAt: serverTimestamp(),
@@ -661,7 +694,7 @@ export async function createExchangeTask({
   }
 
   void recalculateExchangeProgress(exchangeId);
-  return taskId;
+  return finalTaskId;
 }
 
 /**

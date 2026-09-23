@@ -252,6 +252,7 @@ export function ExchangeWorkspaceCard({
     try {
       await createExchangeTask({
         exchangeId: exchange.id,
+        taskId: taskObj.id,
         title,
         createdBy: currentUserId,
         createdByName: currentUserName || "Member",
