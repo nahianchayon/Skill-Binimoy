@@ -143,6 +143,10 @@ function MessagesPage() {
   const [activeTasks, setActiveTasks] = useState<ExchangeTask[]>([]);
   const [isTodoExpanded, setIsTodoExpanded] = useState(true);
   const [todoFilter, setTodoFilter] = useState<"ALL" | "PENDING" | "COMPLETED">("ALL");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [isSavingTask, setIsSavingTask] = useState(false);
 
   // Partner Profile Modal State
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
@@ -367,14 +371,22 @@ function MessagesPage() {
             };
           });
 
-          loaded.sort((a, b) => {
+          // Merge with local tasks so newly saved tasks are NEVER wiped out by snapshot latency
+          const localTasks = getLocalExchangeTasks(activeExchangeId);
+          const remoteIds = new Set(loaded.map((t) => t.id));
+          const combined = [
+            ...loaded,
+            ...localTasks.filter((lt) => !remoteIds.has(lt.id)),
+          ];
+
+          combined.sort((a, b) => {
             const aTime = a.createdAt ? new Date(a.createdAt as string).getTime() : 0;
             const bTime = b.createdAt ? new Date(b.createdAt as string).getTime() : 0;
             return aTime - bTime;
           });
 
-          setActiveTasks(loaded);
-          saveLocalExchangeTasks(activeExchangeId, loaded);
+          setActiveTasks(combined);
+          saveLocalExchangeTasks(activeExchangeId, combined);
         } else {
           // If Firestore is empty, maintain local starter tasks
           const localTasks = getLocalExchangeTasks(activeExchangeId);
@@ -448,6 +460,71 @@ function MessagesPage() {
         ),
       );
       setNotice("Could not update task status. Please check your connection.");
+    }
+  }
+
+  async function handleAddInboxTask(e: React.FormEvent) {
+    e.preventDefault();
+    const title = newTaskTitle.trim();
+    if (!title || !user) return;
+
+    setIsSavingTask(true);
+
+    const targetExchangeId =
+      activeExchangeId ||
+      selected?.exchangeId ||
+      (selected ? `exchange_${selected.id}` : null);
+
+    if (!targetExchangeId) {
+      setIsSavingTask(false);
+      setNotice("Select a conversation to add a task.");
+      return;
+    }
+
+    let assigneeName = "Both Members";
+    if (selectedPartner) {
+      if (newTaskAssignee === user.uid) {
+        assigneeName = profile?.displayName || user.displayName || "You";
+      } else if (newTaskAssignee === selectedPartner.partnerId) {
+        assigneeName = selectedPartner.name;
+      }
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const taskObj: ExchangeTask = {
+      id: taskId,
+      exchangeId: targetExchangeId,
+      title,
+      createdBy: user.uid,
+      createdByName: profile?.displayName || user.displayName || "Member",
+      assignedTo: newTaskAssignee,
+      assignedToName: assigneeName,
+      status: "PENDING",
+      completed: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    // 1. Instantly update UI and localStorage so task appears immediately
+    setActiveTasks((prev) => [...prev, taskObj]);
+    const currentLocals = getLocalExchangeTasks(targetExchangeId);
+    saveLocalExchangeTasks(targetExchangeId, [...currentLocals.filter((t) => t.id !== taskId), taskObj]);
+
+    setNewTaskTitle("");
+    setIsAddingTask(false);
+    setIsSavingTask(false);
+
+    // 2. Persist to Firestore asynchronously
+    try {
+      await createExchangeTask({
+        exchangeId: targetExchangeId,
+        title,
+        createdBy: user.uid,
+        createdByName: profile?.displayName || user.displayName || "Member",
+        assignedTo: newTaskAssignee,
+        assignedToName: assigneeName,
+      });
+    } catch (err) {
+      console.warn("Notice: Task saved locally (Firestore sync deferred):", err);
     }
   }
 
@@ -775,6 +852,18 @@ function MessagesPage() {
                           />
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsTodoExpanded(true);
+                          setIsAddingTask(!isAddingTask);
+                        }}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 dark:bg-primary/20 hover:bg-primary/20 text-primary dark:text-blue-400 transition cursor-pointer"
+                        title="Add Shared Task"
+                      >
+                        <Plus className="size-4" />
+                      </button>
                     </div>
                   </div>
 
@@ -818,7 +907,51 @@ function MessagesPage() {
                             Done ({completedTasks})
                           </button>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingTask(!isAddingTask)}
+                          className="text-[11px] font-bold text-primary dark:text-blue-400 hover:underline cursor-pointer"
+                        >
+                          {isAddingTask ? "Cancel" : "+ Add Task"}
+                        </button>
                       </div>
+
+                      {/* Add Task Input Form */}
+                      {isAddingTask && (
+                        <form
+                          onSubmit={handleAddInboxTask}
+                          className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-in fade-in duration-200"
+                        >
+                          <input
+                            type="text"
+                            required
+                            autoFocus
+                            placeholder="Add task title (e.g. review code together)..."
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            className="flex-1 min-w-[160px] text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-white outline-none focus:border-primary"
+                          />
+                          <select
+                            value={newTaskAssignee}
+                            onChange={(e) => setNewTaskAssignee(e.target.value)}
+                            className="text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-slate-900 dark:text-white outline-none"
+                          >
+                            <option value="BOTH">Both</option>
+                            <option value={user?.uid || "ME"}>You</option>
+                            {selectedPartner && (
+                              <option value={selectedPartner.partnerId}>{selectedPartner.name}</option>
+                            )}
+                          </select>
+                          <button
+                            type="submit"
+                            disabled={isSavingTask || !newTaskTitle.trim()}
+                            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer shadow-2xs disabled:opacity-50"
+                          >
+                            {isSavingTask ? "Saving..." : "Save"}
+                          </button>
+                        </form>
+                      )}
 
                       {/* Task List */}
                       {filteredTasks.length === 0 ? (

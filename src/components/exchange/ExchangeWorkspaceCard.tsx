@@ -51,6 +51,13 @@ export function ExchangeWorkspaceCard({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [filter, setFilter] = useState<"ALL" | "PENDING" | "COMPLETED">("ALL");
 
+  // New task form state
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskAssignee, setNewTaskAssignee] = useState<string>("BOTH");
+  const [newTaskDueDate, setNewTaskDueDate] = useState("");
+  const [isAddingTask, setIsAddingTask] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+
   // Partner identification
   const partnerId = exchange.participantIds.find((id) => id !== currentUserId) || "";
   const partner = exchange.participants[partnerId];
@@ -116,14 +123,22 @@ export function ExchangeWorkspaceCard({
             };
           });
 
-          loadedTasks.sort((a, b) => {
+          // Merge with local tasks so newly saved tasks are NEVER wiped out by snapshot latency
+          const localTasks = getLocalExchangeTasks(exchange.id);
+          const remoteIds = new Set(loadedTasks.map((t) => t.id));
+          const combined = [
+            ...loadedTasks,
+            ...localTasks.filter((lt) => !remoteIds.has(lt.id)),
+          ];
+
+          combined.sort((a, b) => {
             const aTime = a.createdAt ? new Date(a.createdAt as string).getTime() : 0;
             const bTime = b.createdAt ? new Date(b.createdAt as string).getTime() : 0;
             return aTime - bTime;
           });
 
-          setTasks(loadedTasks);
-          saveLocalExchangeTasks(exchange.id, loadedTasks);
+          setTasks(combined);
+          saveLocalExchangeTasks(exchange.id, combined);
         } else {
           const currentLocal = getLocalExchangeTasks(exchange.id);
           if (currentLocal.length > 0) {
@@ -191,6 +206,61 @@ export function ExchangeWorkspaceCard({
             : t,
         ),
       );
+    }
+  }
+
+  async function handleAddTask(e: React.FormEvent) {
+    e.preventDefault();
+    const title = newTaskTitle.trim();
+    if (!title) return;
+
+    setSavingTask(true);
+    const dueDate = newTaskDueDate || undefined;
+    let assigneeName = "Both Members";
+    if (newTaskAssignee === currentUserId) {
+      assigneeName = currentUserName || "You";
+    } else if (newTaskAssignee === partnerId) {
+      assigneeName = partnerName;
+    }
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const taskObj: ExchangeTask = {
+      id: taskId,
+      exchangeId: exchange.id,
+      title,
+      createdBy: currentUserId,
+      createdByName: currentUserName || "Member",
+      assignedTo: newTaskAssignee,
+      assignedToName: assigneeName,
+      status: "PENDING",
+      completed: false,
+      dueDate,
+      createdAt: new Date().toISOString(),
+    };
+
+    // 1. Instantly update local state and localStorage
+    setTasks((prev) => [...prev, taskObj]);
+    const currentLocals = getLocalExchangeTasks(exchange.id);
+    saveLocalExchangeTasks(exchange.id, [...currentLocals.filter((t) => t.id !== taskId), taskObj]);
+
+    setNewTaskTitle("");
+    setNewTaskDueDate("");
+    setIsAddingTask(false);
+    setSavingTask(false);
+
+    // 2. Persist to Firestore in background
+    try {
+      await createExchangeTask({
+        exchangeId: exchange.id,
+        title,
+        createdBy: currentUserId,
+        createdByName: currentUserName || "Member",
+        assignedTo: newTaskAssignee,
+        assignedToName: assigneeName,
+        dueDate,
+      });
+    } catch (err) {
+      console.warn("Notice: Task created locally (Firestore sync deferred):", err);
     }
   }
 
@@ -372,12 +442,80 @@ export function ExchangeWorkspaceCard({
               Done
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAddingTask(!isAddingTask)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary-hover text-white px-3 py-1.5 text-xs font-bold transition cursor-pointer shadow-xs"
+          >
+            <Plus className="size-3.5" />
+            <span>{isAddingTask ? "Cancel" : "Add Task"}</span>
+          </button>
         </div>
       </div>
 
       {/* Todo List Content */}
       {isExpanded && (
         <div className="p-5 space-y-3">
+          {/* Inline Add Task Form */}
+          {isAddingTask && (
+            <form
+              onSubmit={handleAddTask}
+              className="p-4 rounded-2xl border border-primary/30 bg-primary/5 dark:bg-primary/10 space-y-3 animate-in fade-in duration-200"
+            >
+              <div>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="Task title (e.g. Master React Hooks, Practice 10 problems)..."
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  className="w-full text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-slate-900 dark:text-white outline-none focus:border-primary"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                  <Users className="size-3.5 text-slate-400" />
+                  <select
+                    value={newTaskAssignee}
+                    onChange={(e) => setNewTaskAssignee(e.target.value)}
+                    className="text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none"
+                  >
+                    <option value="BOTH">Both Members</option>
+                    <option value={currentUserId}>Assigned to You</option>
+                    <option value={partnerId}>Assigned to {partnerName}</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                  <Calendar className="size-3.5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={newTaskDueDate}
+                    onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    className="text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none"
+                  />
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingTask(false)}
+                    className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingTask || !newTaskTitle.trim()}
+                    className="inline-flex items-center gap-1 rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-white hover:bg-primary-hover transition cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {savingTask ? "Saving..." : "Save Task"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
           {/* Task Items */}
           {loading ? (
             <div className="py-6 text-center text-xs text-slate-400">Loading tasks...</div>
