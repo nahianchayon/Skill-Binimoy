@@ -91,55 +91,66 @@ function createDemoProfile(user: DemoUser): UserProfile {
 
 async function writeSecurityLog(user: Pick<AuthUser, "uid" | "email">, action: string) {
   if (!db) return;
-  await addDoc(collection(db, "securityLogs"), {
-    uid: user.uid,
-    email: user.email,
-    action,
-    createdAt: serverTimestamp(),
-  });
+  try {
+    await addDoc(collection(db, "securityLogs"), {
+      uid: user.uid,
+      email: user.email,
+      action,
+      createdAt: serverTimestamp(),
+    });
+  } catch (e) {
+    console.warn("Could not write security log (non-fatal):", e);
+  }
 }
 
 async function ensureProfile(user: User, displayName?: string) {
   if (!db) return;
-  const isCachedPremium =
-    typeof window !== "undefined" &&
-    localStorage.getItem(`sb_premium_${user.uid}`) === "true";
+  try {
+    const isCachedPremium =
+      typeof window !== "undefined" &&
+      localStorage.getItem(`sb_premium_${user.uid}`) === "true";
 
-  const profileRef = doc(db, "users", user.uid);
-  const existing = await getDoc(profileRef);
-  if (existing.exists()) {
-    const existingData = existing.data();
-    const updates: Record<string, unknown> = {
-      uid: user.uid,
-      email: user.email,
-    };
-    if (!existingData["displayName"] && (displayName || user.displayName)) {
-      updates["displayName"] = displayName || user.displayName;
+    const profileRef = doc(db, "users", user.uid);
+    const existing = await getDoc(profileRef);
+    if (existing.exists()) {
+      const existingData = existing.data();
+      const updates: Record<string, unknown> = {
+        uid: user.uid,
+        email: user.email,
+        updatedAt: serverTimestamp(),
+      };
+      if (!existingData["displayName"] && (displayName || user.displayName)) {
+        updates["displayName"] = displayName || user.displayName;
+      }
+      if (!existingData["photoURL"] && user.photoURL) {
+        updates["photoURL"] = user.photoURL;
+      }
+      if (isCachedPremium && !existingData["premium"]) {
+        updates["premium"] = true;
+        updates["tutorVerified"] = true;
+      }
+      await setDoc(profileRef, updates, { merge: true });
+      return;
     }
-    if (!existingData["photoURL"] && user.photoURL) {
-      updates["photoURL"] = user.photoURL;
-    }
-    if (isCachedPremium && !existingData["premium"]) {
-      updates["premium"] = true;
-      updates["tutorVerified"] = true;
-    }
-    await setDoc(profileRef, updates, { merge: true });
-    return;
+    await setDoc(
+      profileRef,
+      {
+        uid: user.uid,
+        email: user.email,
+        displayName:
+          displayName || user.displayName || user.email?.split("@")[0] || "Skill Binimoy member",
+        photoURL: user.photoURL || null,
+        role: "USER",
+        premium: isCachedPremium,
+        tutorVerified: isCachedPremium,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (err) {
+    console.warn("ensureProfile warning (non-fatal):", err);
   }
-  await setDoc(
-    profileRef,
-    {
-      uid: user.uid,
-      email: user.email,
-      displayName:
-        displayName || user.displayName || user.email?.split("@")[0] || "Skill Binimoy member",
-      photoURL: user.photoURL || null,
-      role: "USER",
-      premium: isCachedPremium,
-      tutorVerified: isCachedPremium,
-    },
-    { merge: true },
-  );
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -166,19 +177,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (nextUser) {
         await ensureProfile(nextUser);
         if (db) {
-          unsubProfile = onSnapshot(doc(db, "users", nextUser.uid), (snap) => {
-            if (snap.exists()) {
-              const data = snap.data() as UserProfile;
-              const isCachedPremium =
-                typeof window !== "undefined" &&
-                localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true";
-              setProfile({
-                ...data,
-                premium: Boolean(data.premium || isCachedPremium),
-                tutorVerified: Boolean(data.tutorVerified || data.premium || isCachedPremium),
-              });
-            }
-          });
+          unsubProfile = onSnapshot(
+            doc(db, "users", nextUser.uid),
+            (snap) => {
+              if (snap.exists()) {
+                const data = snap.data() as UserProfile;
+                const isCachedPremium =
+                  typeof window !== "undefined" &&
+                  localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true";
+                setProfile({
+                  ...data,
+                  premium: Boolean(data.premium || isCachedPremium),
+                  tutorVerified: Boolean(data.tutorVerified || data.premium || isCachedPremium),
+                });
+              }
+            },
+            (err) => console.warn("User profile snapshot notice:", err),
+          );
         }
       } else {
         setProfile(null);
@@ -199,8 +214,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       configured: firebaseEnabled,
       async login(email, password, remember = true) {
+        const trimmedEmail = (email || "").trim();
+        if (!trimmedEmail) throw new Error("Please enter your email or demo name.");
+        if (!password) throw new Error("Please enter your password.");
+
+        const normalizedEmail = trimmedEmail.includes("@")
+          ? trimmedEmail
+          : `${trimmedEmail.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@skillbinimoy.local`;
+
         if (!auth) {
-          const demoUser = createDemoUser(email);
+          const demoUser = createDemoUser(normalizedEmail);
           (remember ? localStorage : sessionStorage).setItem(
             DEMO_SESSION_KEY,
             JSON.stringify(demoUser),
@@ -210,22 +233,56 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
-        const result = await signInWithEmailAndPassword(auth, email, password);
-        await writeSecurityLog(result.user, "LOGIN_SUCCESS");
+        const result = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+        try {
+          await writeSecurityLog(result.user, "LOGIN_SUCCESS");
+        } catch (e) {
+          console.warn("Could not write security log (non-fatal):", e);
+        }
       },
       async register(email, password, displayName) {
+        const trimmedEmail = (email || "").trim();
+        const trimmedName = (displayName || "").trim() || "Member";
+        if (!trimmedEmail) throw new Error("Please enter an email address.");
+        if (!password || password.length < 6) throw new Error("Password must be at least 6 characters.");
+
+        const normalizedEmail = trimmedEmail.includes("@")
+          ? trimmedEmail
+          : `${trimmedEmail.toLowerCase().replace(/[^a-z0-9._-]/g, "")}@skillbinimoy.local`;
+
         if (!auth) {
-          const demoUser = createDemoUser(email, displayName);
+          const demoUser = createDemoUser(normalizedEmail, trimmedName);
           localStorage.setItem(DEMO_SESSION_KEY, JSON.stringify(demoUser));
           setUser(demoUser);
           setProfile(createDemoProfile(demoUser));
           return;
         }
-        const result = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(result.user, { displayName });
-        await ensureProfile(result.user, displayName);
-        await sendEmailVerification(result.user);
-        await writeSecurityLog(result.user, "REGISTERED");
+
+        const result = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+
+        try {
+          await updateProfile(result.user, { displayName: trimmedName });
+        } catch (e) {
+          console.warn("Could not update auth profile displayName:", e);
+        }
+
+        try {
+          await ensureProfile(result.user, trimmedName);
+        } catch (e) {
+          console.warn("Could not ensure profile document:", e);
+        }
+
+        try {
+          await sendEmailVerification(result.user);
+        } catch (e) {
+          console.warn("Notice: Verification email was skipped or throttled (non-fatal):", e);
+        }
+
+        try {
+          await writeSecurityLog(result.user, "REGISTERED");
+        } catch (e) {
+          console.warn("Notice: Security log write skipped (non-fatal):", e);
+        }
       },
       async loginWithGoogle() {
         if (!auth) {
@@ -236,8 +293,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         const result = await signInWithPopup(auth, new GoogleAuthProvider());
-        await ensureProfile(result.user);
-        await writeSecurityLog(result.user, "GOOGLE_LOGIN_SUCCESS");
+        try {
+          await ensureProfile(result.user);
+        } catch (e) {
+          console.warn("ensureProfile warning during Google login:", e);
+        }
+        try {
+          await writeSecurityLog(result.user, "GOOGLE_LOGIN_SUCCESS");
+        } catch (e) {
+          console.warn("writeSecurityLog warning during Google login:", e);
+        }
       },
       async resetPassword(email) {
         if (!auth) return;
