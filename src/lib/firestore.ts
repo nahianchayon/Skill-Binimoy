@@ -93,7 +93,13 @@ export function watchRecords<T extends DocumentData>(
     ref,
     (snapshot) =>
       onData(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as T & { id: string })),
-    onError,
+    (error) => {
+      if (onError) {
+        onError(error);
+      } else {
+        console.warn(`[watchRecords] Listener notice for "${collectionName}":`, error.message);
+      }
+    },
   );
 }
 

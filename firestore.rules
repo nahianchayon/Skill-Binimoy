@@ -17,12 +17,13 @@ service cloud.firestore {
     }
 
     match /posts/{postId} {
-      allow read: if signedIn();
+      allow read: if true;
       allow create: if signedIn() && request.resource.data.authorId == request.auth.uid;
       allow update: if signedIn();
       allow delete: if signedIn() && (resource.data.authorId == request.auth.uid || admin());
       match /solutions/{solutionId} {
-        allow read, create: if signedIn();
+        allow read: if true;
+        allow create: if signedIn();
         allow update, delete: if signedIn() && (resource.data.userId == request.auth.uid || admin());
       }
     }
@@ -74,24 +75,24 @@ service cloud.firestore {
     }
 
     match /reviews/{reviewId} {
-      allow read: if signedIn();
+      allow read: if true;
       allow create: if signedIn() && request.resource.data.reviewerId == request.auth.uid && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
       allow update, delete: if signedIn() && resource.data.reviewerId == request.auth.uid;
     }
 
     match /tutorApplications/{applicationId} {
-      allow read: if signedIn() && (resource.data.userId == request.auth.uid || admin());
+      allow read: if signedIn();
       allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if admin();
     }
-    match /tutors/{tutorId} { allow read: if signedIn(); allow write: if admin(); }
+    match /tutors/{tutorId} { allow read: if true; allow write: if admin(); }
     match /subscriptions/{id} { allow read: if signedIn() && resource.data.userId == request.auth.uid; allow write: if false; }
     match /payments/{id} { allow read: if signedIn() && resource.data.userId == request.auth.uid || admin(); allow write: if false; }
     match /rewards/{id} { allow read: if signedIn(); allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid; allow update: if signedIn() && (resource.data.ownerId == request.auth.uid || resource.data.solutionUserId == request.auth.uid); }
     match /solutions/{id} { allow read: if signedIn(); allow create: if signedIn() && request.resource.data.userId == request.auth.uid; allow update: if admin() || (signedIn() && resource.data.userId == request.auth.uid); }
     match /reports/{id} { allow create: if signedIn() && request.resource.data.reporterId == request.auth.uid; allow read, update: if admin(); }
     match /blocks/{id} { allow read, create, delete: if signedIn() && (request.resource.data.blockerId == request.auth.uid || resource.data.blockerId == request.auth.uid); }
-    match /products/{id} { allow read: if signedIn(); allow write: if admin(); }
+    match /products/{id} { allow read: if true; allow write: if admin(); }
     match /carts/{uid} { allow read, write: if owner(uid); }
     match /orders/{id} { allow read: if signedIn() && (resource.data.userId == request.auth.uid || admin()); allow create: if signedIn() && request.resource.data.userId == request.auth.uid; allow update: if admin(); }
     match /supportTickets/{id} { allow read: if signedIn() && (resource.data.userId == request.auth.uid || admin()); allow create: if signedIn() && request.resource.data.userId == request.auth.uid; allow update: if admin() || (signedIn() && resource.data.userId == request.auth.uid); }
