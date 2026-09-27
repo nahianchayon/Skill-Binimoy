@@ -53,24 +53,24 @@ export function Navbar() {
       )}
     >
       <nav className="container-x flex h-18 items-center gap-4" aria-label="Main">
-        <Logo />
+        <Logo className="shrink-0" />
 
-        <ul className="ml-4 hidden items-center gap-1 xl:flex">
+        <ul className="ml-4 hidden items-center gap-1 xl:flex shrink-0">
           {navItems.map((item) => (
-            <li key={item.label}>
+            <li key={item.label} className="shrink-0">
               {item.to ? (
                 <Link
                   to={item.to}
                   activeOptions={{ exact: true }}
                   activeProps={{ className: "text-primary" }}
-                  className="text-muted-foreground hover:text-foreground rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                  className="text-muted-foreground hover:text-foreground rounded-lg px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap"
                 >
                   {item.label}
                 </Link>
               ) : (
                 <a
                   href={item.hash}
-                  className="text-muted-foreground hover:text-foreground rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+                  className="text-muted-foreground hover:text-foreground rounded-lg px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap"
                 >
                   {item.label}
                 </a>
@@ -79,7 +79,7 @@ export function Navbar() {
           ))}
         </ul>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <label className="relative hidden lg:block">
             <span className="sr-only">Search skills, mentors and courses</span>
             <Search
@@ -129,11 +129,11 @@ export function Navbar() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="hidden items-center gap-2 sm:flex">
-            <Button variant="ghost" asChild>
+          <div className="hidden items-center gap-2 sm:flex shrink-0">
+            <Button variant="ghost" asChild className="whitespace-nowrap">
               <Link to="/login">Log in</Link>
             </Button>
-            <Button variant="hero" asChild>
+            <Button variant="hero" asChild className="whitespace-nowrap">
               <Link to="/login">Sign up</Link>
             </Button>
           </div>
@@ -167,7 +167,7 @@ export function Navbar() {
                     <Link
                       to={item.to}
                       onClick={() => setOpen(false)}
-                      className="hover:bg-accent block rounded-xl px-4 py-3 text-sm font-medium"
+                      className="hover:bg-accent block rounded-xl px-4 py-3 text-sm font-medium whitespace-nowrap"
                     >
                       {item.label}
                     </Link>
@@ -175,7 +175,7 @@ export function Navbar() {
                     <a
                       href={item.hash ?? "/"}
                       onClick={() => setOpen(false)}
-                      className="hover:bg-accent block rounded-xl px-4 py-3 text-sm font-medium"
+                      className="hover:bg-accent block rounded-xl px-4 py-3 text-sm font-medium whitespace-nowrap"
                     >
                       {item.label}
                     </a>
@@ -183,10 +183,10 @@ export function Navbar() {
                 </li>
               ))}
               <li className="mt-2 grid grid-cols-2 gap-2">
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="whitespace-nowrap">
                   <Link to="/login">Log in</Link>
                 </Button>
-                <Button variant="hero" asChild>
+                <Button variant="hero" asChild className="whitespace-nowrap">
                   <Link to="/login">Sign up</Link>
                 </Button>
               </li>

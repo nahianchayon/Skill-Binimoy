@@ -231,34 +231,34 @@ export function WorkspaceShell({
           </aside>
         )}
         <header className="workspace-topbar sticky top-0 z-40 border-b border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-xs">
-          <div className="mx-auto flex h-[4.5rem] max-w-[1440px] items-center gap-5 px-5 sm:px-8">
+          <div className="mx-auto flex h-[4.25rem] max-w-[1440px] items-center gap-2 sm:gap-3 xl:gap-5 px-3 sm:px-6 lg:px-8">
             <Logo className="shrink-0" to="/dashboard" />
-            <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 lg:block" />
-            <p className="hidden text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 lg:block">
+            <span className="hidden h-6 w-px bg-slate-200 dark:bg-slate-800 2xl:block" />
+            <p className="hidden text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 2xl:block whitespace-nowrap">
               Learn · Teach · Grow
             </p>
-            <nav className="ml-auto hidden items-center gap-1.5 lg:flex">
+            <nav className="ml-auto hidden items-center gap-0.5 xl:gap-1 lg:flex shrink-0">
               <Link
                 to="/dashboard"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
                 Home
               </Link>
               <Link
                 to="/explore"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
-                Explore Skills
+                <span>Explore<span className="hidden xl:inline"> Skills</span></span>
               </Link>
               <Link
                 to="/$section"
                 params={{ section: "exchanges" }}
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link inline-flex items-center gap-1.5"
+                className="workspace-top-link inline-flex items-center gap-1.5 whitespace-nowrap"
               >
-                <span>My Exchanges</span>
+                <span><span className="hidden xl:inline">My </span>Exchanges</span>
                 {activeExchangesCount > 0 && (
                   <span className="rounded-full bg-primary/15 text-primary text-[10px] font-black px-1.5 py-0.2">
                     {activeExchangesCount}
@@ -268,40 +268,40 @@ export function WorkspaceShell({
               <Link
                 to="/tutors"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
-                Find Tutors
+                <span><span className="hidden xl:inline">Find </span>Tutors</span>
               </Link>
               <Link
                 to="/$section"
                 params={{ section: "solutions" }}
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
-                Quick Solutions
+                <span><span className="hidden xl:inline">Quick </span>Solutions</span>
               </Link>
               <Link
                 to="/shop"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
                 Shop
               </Link>
               <Link
                 to="/faq"
                 activeProps={{ className: "workspace-top-link workspace-top-link-active" }}
-                className="workspace-top-link"
+                className="workspace-top-link whitespace-nowrap"
               >
                 FAQ
               </Link>
             </nav>
-            <div className="ml-auto flex items-center gap-2.5 lg:ml-5">
+            <div className="ml-auto flex items-center gap-1.5 sm:gap-2 xl:gap-2.5 lg:ml-2 xl:ml-4 shrink-0">
               <Link
                 to="/explore"
                 aria-label="Search skills"
                 className="workspace-icon-button hidden sm:grid"
               >
-                <Search className="size-[18px]" />
+                <Search className="size-[17px]" />
               </Link>
               <Link
                 to="/$section"
@@ -309,7 +309,7 @@ export function WorkspaceShell({
                 aria-label="Notifications"
                 className="workspace-icon-button relative grid"
               >
-                <Bell className="size-[18px]" />
+                <Bell className="size-[17px]" />
                 {unreadNotifications > 0 && (
                   <span className="workspace-message-badge !bg-rose-500">
                     {unreadNotifications > 9 ? "9+" : unreadNotifications}
@@ -321,7 +321,7 @@ export function WorkspaceShell({
                 aria-label="Messages"
                 className="workspace-icon-button relative hidden sm:grid"
               >
-                <MessageCircle className="size-[18px]" />
+                <MessageCircle className="size-[17px]" />
                 {unreadMessages > 0 && (
                   <span className="workspace-message-badge">
                     {unreadMessages > 9 ? "9+" : unreadMessages}
@@ -331,10 +331,10 @@ export function WorkspaceShell({
               <Link
                 to="/$section"
                 params={{ section: "premium" }}
-                className="workspace-premium-link hidden items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold sm:flex"
+                className="workspace-premium-link hidden items-center gap-1.5 rounded-xl px-2.5 xl:px-3.5 py-1.5 text-xs font-bold whitespace-nowrap sm:flex shrink-0"
               >
-                <Crown className="size-3.5 text-amber-600" />
-                <span>{(profile?.tutorVerified || profile?.premium) ? "Pro Member" : "Get Pro"}</span>
+                <Crown className="size-3.5 text-amber-600 shrink-0" />
+                <span className="whitespace-nowrap">{(profile?.tutorVerified || profile?.premium) ? "Pro Member" : "Get Pro"}</span>
               </Link>
               <button
                 type="button"
@@ -344,39 +344,39 @@ export function WorkspaceShell({
                 className="workspace-icon-button grid"
               >
                 {theme === "dark" ? (
-                  <Sun className="size-[17px] text-amber-400" />
+                  <Sun className="size-[16px] text-amber-400" />
                 ) : (
-                  <Moon className="size-[17px] text-slate-600" />
+                  <Moon className="size-[16px] text-slate-600" />
                 )}
               </button>
-              <div className="relative">
+              <div className="relative shrink-0">
                 <button
                   aria-label="Open profile menu"
                   onClick={() => setProfileOpen((open) => !open)}
-                  className="workspace-profile-button flex items-center gap-2 rounded-full p-1 pr-2 transition hover:bg-primary-soft"
+                  className="workspace-profile-button flex items-center gap-1.5 sm:gap-2 rounded-full p-1 pr-1.5 sm:pr-2 transition hover:bg-primary-soft whitespace-nowrap shrink-0"
                 >
                   <div className="relative">
                     {profile?.photoURL ? (
                       <img
                         src={profile.photoURL}
                         alt={profile.displayName || "Member"}
-                        className="size-9 rounded-full object-cover ring-4 ring-primary/10"
+                        className="size-8 sm:size-9 rounded-full object-cover ring-2 sm:ring-4 ring-primary/10"
                       />
                     ) : (
-                      <span className="grid size-9 place-items-center rounded-full bg-primary text-sm font-black text-primary-foreground ring-4 ring-primary/10">
+                      <span className="grid size-8 sm:size-9 place-items-center rounded-full bg-primary text-xs sm:text-sm font-black text-primary-foreground ring-2 sm:ring-4 ring-primary/10">
                         {(profile?.displayName || "M").slice(0, 1).toUpperCase()}
                       </span>
                     )}
                     {(profile?.tutorVerified || profile?.premium) && (
                       <span
                         title="Verified Member"
-                        className="absolute -bottom-0.5 -right-0.5 grid size-4 place-items-center rounded-full bg-white dark:bg-slate-900 ring-1 ring-primary/40 text-primary shadow-xs"
+                        className="absolute -bottom-0.5 -right-0.5 grid size-3.5 sm:size-4 place-items-center rounded-full bg-white dark:bg-slate-900 ring-1 ring-primary/40 text-primary shadow-xs"
                       >
-                        <BadgeCheck className="size-3.5 fill-primary text-white dark:text-slate-900" />
+                        <BadgeCheck className="size-3 sm:size-3.5 fill-primary text-white dark:text-slate-900" />
                       </span>
                     )}
                   </div>
-                  <span className="hidden max-w-28 truncate text-left text-xs font-bold sm:inline-flex sm:items-center sm:gap-1">
+                  <span className="hidden max-w-20 xl:max-w-28 truncate text-left text-xs font-bold whitespace-nowrap sm:inline-flex sm:items-center sm:gap-1">
                     {profile?.displayName || "Member"}
                     {(profile?.tutorVerified || profile?.premium) && (
                       <BadgeCheck className="size-3.5 text-primary shrink-0" />
@@ -527,18 +527,18 @@ export function WorkspaceShell({
             </div>
           </div>
           {menuOpen && (
-            <nav className="border-t border-border bg-white px-5 py-3 lg:hidden">
+            <nav className="border-t border-slate-200 dark:border-slate-800 bg-white/98 dark:bg-slate-900/98 backdrop-blur-xl px-5 py-3 lg:hidden">
               <Link
                 to="/dashboard"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 Home
               </Link>
               <Link
                 to="/explore"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 Explore Skills
               </Link>
@@ -546,7 +546,7 @@ export function WorkspaceShell({
                 to="/$section"
                 params={{ section: "exchanges" }}
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 <span>My Exchanges</span>
                 {activeExchangesCount > 0 && (
@@ -558,7 +558,7 @@ export function WorkspaceShell({
               <Link
                 to="/tutors"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 Find Tutors
               </Link>
@@ -566,28 +566,28 @@ export function WorkspaceShell({
                 to="/$section"
                 params={{ section: "solutions" }}
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 Quick Solutions
               </Link>
               <Link
                 to="/shop"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 Shop
               </Link>
               <Link
                 to="/faq"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="block rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 FAQ & Help Guide
               </Link>
               <Link
                 to="/messages"
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 <span>Messages</span>
                 {unreadMessages > 0 && (
@@ -600,7 +600,7 @@ export function WorkspaceShell({
                 to="/$section"
                 params={{ section: "notifications" }}
                 onClick={() => setMenuOpen(false)}
-                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 <span>Notifications</span>
                 {unreadNotifications > 0 && (
@@ -613,7 +613,7 @@ export function WorkspaceShell({
                 to="/$section"
                 params={{ section: "premium" }}
                 onClick={() => setMenuOpen(false)}
-                className="mt-1 flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-primary hover:bg-primary-soft"
+                className="mt-1 flex items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-primary hover:bg-primary-soft whitespace-nowrap"
               >
                 <span className="flex items-center gap-2">
                   <Crown className="size-4" /> Premium & Verified ID
@@ -642,7 +642,7 @@ export function WorkspaceShell({
                         : null,
                   );
                 }}
-                className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-primary hover:bg-primary-soft"
+                className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-primary hover:bg-primary-soft whitespace-nowrap"
               >
                 <span>View My Profile</span>
                 <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-black">Public</span>
@@ -650,7 +650,7 @@ export function WorkspaceShell({
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-muted-foreground hover:bg-primary-soft hover:text-primary"
+                className="flex w-full items-center justify-between rounded-xl px-3 py-3 text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-primary-soft hover:text-primary whitespace-nowrap"
               >
                 <span>Appearance</span>
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
