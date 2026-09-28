@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Trash2,
+  Truck,
   UserCheck,
   UserRound,
   UserRoundCheck,
@@ -71,6 +72,9 @@ type AdminRow = {
   items?: Array<{ name?: string; quantity?: number; price?: number }>;
   total?: number;
   paymentMethod?: string;
+  userName?: string | undefined;
+  phone?: string | undefined;
+  shippingAddress?: string | undefined;
   [key: string]: unknown;
 };
 
@@ -105,6 +109,10 @@ function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [rejectionModal, setRejectionModal] = useState<AdminRow | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>("ALL");
+  const [selectedOrder, setSelectedOrder] = useState<AdminRow | null>(null);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
 
   const [productForm, setProductForm] = useState({
     name: "",
@@ -274,6 +282,11 @@ function AdminPage() {
       });
 
       if (application.userId) {
+        await updateRecord("users", application.userId, {
+          tutorVerified: false,
+          role: "USER",
+        }).catch(console.warn);
+
         await createRecord("notifications", {
           recipientId: application.userId,
           title: "Tutor Application Update",
@@ -289,6 +302,39 @@ function AdminPage() {
       setNotice(`Application for ${application.displayName || "applicant"} was declined.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Rejection failed.");
+    }
+  }
+
+  async function handleUpdateOrderStatus(orderId: string, nextStatus: string, order?: AdminRow) {
+    setUpdatingOrderId(orderId);
+    try {
+      await updateRecord("orders", orderId, {
+        status: nextStatus,
+        updatedAt: new Date().toISOString(),
+      });
+
+      const targetOrder = order || orders.find((o) => o.id === orderId);
+      if (targetOrder?.userId) {
+        await createRecord("notifications", {
+          recipientId: targetOrder.userId,
+          title: `Order Status: ${nextStatus}`,
+          description: `Your order #${orderId.slice(-6)} has been updated to "${nextStatus}". Check details in Store.`,
+          status: "UNREAD",
+          type: "ORDER_STATUS_UPDATE",
+          orderId,
+          createdAt: new Date().toISOString(),
+        }).catch(console.warn);
+      }
+
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder((prev) => (prev ? { ...prev, status: nextStatus } : null));
+      }
+
+      setNotice(`Order #${orderId.slice(-6)} status updated to ${nextStatus}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Failed to update order status.");
+    } finally {
+      setUpdatingOrderId(null);
     }
   }
 
@@ -380,6 +426,25 @@ function AdminPage() {
       (p.description || "").toLowerCase().includes(term) ||
       ((typeof p.authorName === "string" ? p.authorName : "")).toLowerCase().includes(term) ||
       (p.category || "").toLowerCase().includes(term)
+    );
+  });
+
+  const filteredOrders = orders.filter((ord) => {
+    if (orderStatusFilter !== "ALL" && (ord.status || "PLACED") !== orderStatusFilter) {
+      return false;
+    }
+    if (!orderSearch.trim()) return true;
+    const q = orderSearch.toLowerCase();
+    const userName = (typeof ord.userName === "string" ? ord.userName : "").toLowerCase();
+    const phone = (typeof ord.phone === "string" ? ord.phone : "").toLowerCase();
+    const address = (typeof ord.shippingAddress === "string" ? ord.shippingAddress : "").toLowerCase();
+    const itemsText = (ord.items || []).map((it) => it.name || "").join(" ").toLowerCase();
+    return (
+      ord.id.toLowerCase().includes(q) ||
+      userName.includes(q) ||
+      phone.includes(q) ||
+      address.includes(q) ||
+      itemsText.includes(q)
     );
   });
 
@@ -969,76 +1034,210 @@ function AdminPage() {
             </div>
           </AdminPanel>
 
-          {/* Orders & Reports Grid */}
-          <div className="grid gap-8 xl:grid-cols-2">
-            {/* Orders Management */}
-            <AdminPanel title="Customer Orders" icon={ShoppingBag} action="All orders">
-              <div className="admin-list">
-                {orders.length === 0 ? (
-                  <AdminEmpty text="No customer orders placed yet." />
-                ) : (
-                  orders.slice(0, 6).map((order) => (
-                    <div className="admin-list-row" key={order.id}>
-                      <span className="admin-list-avatar gold">
-                        <ShoppingBag className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <strong>
-                          Order #{order.id.slice(-6)} · ৳{order.total || 0}
-                        </strong>
-                        <small>
-                          {order.paymentMethod || "COD"} · Status: {order.status || "PLACED"}
-                        </small>
-                      </span>
-                      <select
-                        value={order.status || "PLACED"}
-                        onChange={(e) => void updateStatus("orders", order.id, e.target.value)}
-                        className="rounded-lg border border-input bg-background px-2.5 py-1 text-xs font-bold"
-                      >
-                        <option value="PLACED">Placed</option>
-                        <option value="PAID">Paid</option>
-                        <option value="PROCESSING">Processing</option>
-                        <option value="SHIPPED">Shipped</option>
-                        <option value="DELIVERED">Delivered</option>
-                        <option value="CANCELLED">Cancelled</option>
-                      </select>
-                    </div>
-                  ))
-                )}
+          {/* Customer Orders & Real-time Fulfillment */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-card">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 place-items-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                  <ShoppingBag className="size-5" />
+                </span>
+                <div>
+                  <h2 className="text-xl font-black text-slate-950 dark:text-white">
+                    Customer Orders & Real-time Fulfillment
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Track, process, and update customer order statuses with instant real-time notifications.
+                  </p>
+                </div>
               </div>
-            </AdminPanel>
 
-            {/* Safety Reports */}
-            <AdminPanel title="Safety Reports" icon={AlertTriangle} action="Investigate">
-              <div className="admin-list">
-                {reports.length === 0 ? (
-                  <AdminEmpty text="No active safety reports." />
-                ) : (
-                  reports.slice(0, 6).map((report) => (
-                    <div className="admin-list-row" key={report.id}>
-                      <span className="admin-list-avatar red">
-                        <AlertTriangle className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <strong>{report.reason || report.subject || "Community report"}</strong>
-                        <small>{report.description || "Needs investigation"}</small>
-                      </span>
-                      {report.status !== "RESOLVED" ? (
-                        <button
-                          onClick={() => void updateStatus("reports", report.id, "RESOLVED")}
-                          className="admin-action-button"
-                        >
-                          Resolve
-                        </button>
-                      ) : (
-                        <CheckCircle2 className="size-5 text-emerald-500" />
-                      )}
-                    </div>
-                  ))
-                )}
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                <input
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                  placeholder="Search by ID, name, item, or phone..."
+                  className="h-10 w-full rounded-xl border border-input bg-background pl-9 pr-4 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </div>
-            </AdminPanel>
-          </div>
+            </div>
+
+            {/* Status Filter Tabs */}
+            <div className="mt-5 flex flex-wrap gap-2 border-b border-border pb-3">
+              {[
+                { id: "ALL", label: `All Orders (${orders.length})` },
+                { id: "PLACED", label: `Placed (${orders.filter((o) => (o.status || "PLACED") === "PLACED").length})` },
+                { id: "PAID", label: `Paid (${orders.filter((o) => o.status === "PAID").length})` },
+                { id: "PROCESSING", label: `Processing (${orders.filter((o) => o.status === "PROCESSING").length})` },
+                { id: "SHIPPED", label: `Shipped (${orders.filter((o) => o.status === "SHIPPED").length})` },
+                { id: "DELIVERED", label: `Delivered (${orders.filter((o) => o.status === "DELIVERED").length})` },
+                { id: "CANCELLED", label: `Cancelled (${orders.filter((o) => o.status === "CANCELLED").length})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setOrderStatusFilter(tab.id)}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                    orderStatusFilter === tab.id
+                      ? "bg-primary text-white shadow-xs"
+                      : "bg-background border border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-5 space-y-3">
+              {filteredOrders.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+                  <ShoppingBag className="mx-auto size-8 text-muted-foreground mb-2" />
+                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">No matching orders</p>
+                  <p className="text-xs text-muted-foreground">Try adjusting your search or status filter.</p>
+                </div>
+              ) : (
+                filteredOrders.map((order) => {
+                  const isUpdating = updatingOrderId === order.id;
+
+                  return (
+                    <div
+                      key={order.id}
+                      className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-border bg-background p-4.5 hover:border-primary/40 transition"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                          <span className="font-mono text-xs font-black text-slate-950 dark:text-white">
+                            Order #{order.id.slice(-6)}
+                          </span>
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[10px] font-black ${
+                              order.status === "DELIVERED"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                                : order.status === "SHIPPED"
+                                  ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                                  : order.status === "PROCESSING"
+                                    ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300"
+                                    : order.status === "PAID"
+                                      ? "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300"
+                                      : order.status === "CANCELLED"
+                                        ? "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300"
+                                        : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                            }`}
+                          >
+                            {order.status || "PLACED"}
+                          </span>
+                          <span className="text-xs text-muted-foreground">·</span>
+                          <span className="text-xs font-bold text-primary">৳{order.total || 0}</span>
+                          <span className="text-[11px] text-muted-foreground">({order.paymentMethod || "COD"})</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            Customer: <strong className="text-slate-800 dark:text-slate-200">{order.userName || "Customer"}</strong>
+                          </span>
+                          {order.phone && (
+                            <span>
+                              Phone: <strong className="text-slate-800 dark:text-slate-200">{order.phone}</strong>
+                            </span>
+                          )}
+                          {order.shippingAddress && (
+                            <span className="truncate max-w-xs">
+                              To: <strong className="text-slate-800 dark:text-slate-200">{order.shippingAddress}</strong>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Items preview */}
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                          {(order.items || []).map((it, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 rounded-lg bg-card px-2 py-0.5 text-[11px] font-semibold text-slate-800 dark:text-slate-200 border border-border"
+                            >
+                              <Package className="size-3 text-primary" />
+                              <span>{it.name}</span>
+                              <span className="text-muted-foreground">({it.quantity}x)</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOrder(order)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3.5 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                        >
+                          <Eye className="size-3.5" /> Details
+                        </button>
+
+                        <div className="relative">
+                          <select
+                            disabled={isUpdating}
+                            value={order.status || "PLACED"}
+                            onChange={(e) => void handleUpdateOrderStatus(order.id, e.target.value, order)}
+                            className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-bold text-primary outline-none hover:bg-primary/20 transition cursor-pointer disabled:opacity-50"
+                          >
+                            <option value="PLACED">Placed</option>
+                            <option value="PAID">Paid</option>
+                            <option value="PROCESSING">Processing</option>
+                            <option value="SHIPPED">Shipped</option>
+                            <option value="DELIVERED">Delivered</option>
+                            <option value="CANCELLED">Cancelled</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {/* Safety Reports */}
+          <section className="rounded-3xl border border-border bg-card p-6 shadow-card">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 place-items-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                  <AlertTriangle className="size-5" />
+                </span>
+                <div>
+                  <h2 className="text-xl font-black text-slate-950 dark:text-white">Safety Reports</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Review and resolve incident and community trust reports.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 admin-list">
+              {reports.length === 0 ? (
+                <AdminEmpty text="No active safety reports." />
+              ) : (
+                reports.map((report) => (
+                  <div className="admin-list-row" key={report.id}>
+                    <span className="admin-list-avatar red">
+                      <AlertTriangle className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong>{report.reason || report.subject || "Community report"}</strong>
+                      <small>{report.description || "Needs investigation"}</small>
+                    </span>
+                    {report.status !== "RESOLVED" ? (
+                      <button
+                        onClick={() => void updateStatus("reports", report.id, "RESOLVED")}
+                        className="admin-action-button"
+                      >
+                        Resolve
+                      </button>
+                    ) : (
+                      <CheckCircle2 className="size-5 text-emerald-500" />
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
 
         {/* Detailed Application Modal */}
@@ -1224,6 +1423,160 @@ function AdminPage() {
                 >
                   Confirm Rejection
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Detailed Order Modal */}
+        {selectedOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-4 border-b border-border">
+                <div className="flex items-center gap-3">
+                  <div className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary">
+                    <Package className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-lg text-slate-950 dark:text-white">
+                      Order #{selectedOrder.id.slice(-6)}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Status: <span className="font-bold text-primary">{selectedOrder.status || "PLACED"}</span> · {selectedOrder.paymentMethod || "COD"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+
+              {/* Order Status Timeline */}
+              <div className="mt-5 rounded-2xl bg-slate-50 dark:bg-slate-900 p-4 border border-border">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                  Order Progression
+                </p>
+                <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                  {[
+                    { key: "PLACED", label: "1. Placed" },
+                    { key: "PROCESSING", label: "2. Processing" },
+                    { key: "SHIPPED", label: "3. Shipped" },
+                    { key: "DELIVERED", label: "4. Delivered" },
+                  ].map((step) => {
+                    const statusOrder = ["PLACED", "PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
+                    const currentIdx = statusOrder.indexOf(selectedOrder.status || "PLACED");
+                    const stepIdx = statusOrder.indexOf(step.key);
+                    const isDone = currentIdx >= stepIdx;
+                    return (
+                      <div
+                        key={step.key}
+                        className={`rounded-xl p-2 font-bold transition ${
+                          isDone
+                            ? "bg-primary text-white shadow-xs"
+                            : "bg-card border border-border text-muted-foreground"
+                        }`}
+                      >
+                        {step.label}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Customer & Shipping Details */}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 rounded-2xl border border-border p-4 text-xs">
+                <div>
+                  <span className="text-muted-foreground block font-medium">Customer Name:</span>
+                  <strong className="text-slate-900 dark:text-white text-sm">
+                    {(typeof selectedOrder.userName === "string" ? selectedOrder.userName : "") || "Customer"}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block font-medium">Phone Number:</span>
+                  <strong className="text-slate-900 dark:text-white">
+                    {(typeof selectedOrder.phone === "string" ? selectedOrder.phone : "") || "Not provided"}
+                  </strong>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-muted-foreground block font-medium">Shipping Address:</span>
+                  <strong className="text-slate-900 dark:text-white">
+                    {(typeof selectedOrder.shippingAddress === "string" ? selectedOrder.shippingAddress : "") || "Dhaka, Bangladesh"}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Ordered Items Table */}
+              <div className="mt-4 border border-border rounded-2xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border">
+                    <tr>
+                      <th className="p-3 font-bold text-muted-foreground">Item</th>
+                      <th className="p-3 font-bold text-muted-foreground text-center">Qty</th>
+                      <th className="p-3 font-bold text-muted-foreground text-right">Price</th>
+                      <th className="p-3 font-bold text-muted-foreground text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {(selectedOrder.items || []).map((it, idx) => (
+                      <tr key={idx}>
+                        <td className="p-3 font-bold text-slate-950 dark:text-white">{it.name}</td>
+                        <td className="p-3 text-center">{it.quantity || 1}</td>
+                        <td className="p-3 text-right">৳{it.price || 0}</td>
+                        <td className="p-3 text-right font-bold text-primary">
+                          ৳{(it.quantity || 1) * Number(it.price || 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-border bg-slate-50/50 dark:bg-slate-900/50">
+                    <tr>
+                      <td colSpan={3} className="p-3 font-black text-slate-950 dark:text-white text-right">
+                        Total Amount:
+                      </td>
+                      <td className="p-3 font-black text-primary text-right text-sm">
+                        ৳{selectedOrder.total || 0}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Action Buttons to Progress Order */}
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border">
+                <span className="text-xs text-muted-foreground">Quick Status Update:</span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleUpdateOrderStatus(selectedOrder.id, "PROCESSING", selectedOrder)}
+                    className="rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-bold text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 transition cursor-pointer"
+                  >
+                    Set Processing
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleUpdateOrderStatus(selectedOrder.id, "SHIPPED", selectedOrder)}
+                    className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition cursor-pointer"
+                  >
+                    Set Shipped
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleUpdateOrderStatus(selectedOrder.id, "DELIVERED", selectedOrder)}
+                    className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 transition cursor-pointer"
+                  >
+                    Set Delivered
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleUpdateOrderStatus(selectedOrder.id, "CANCELLED", selectedOrder)}
+                    className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             </div>
           </div>

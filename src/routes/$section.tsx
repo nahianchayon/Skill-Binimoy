@@ -14,11 +14,13 @@ import {
   FileText,
   Heart,
   HelpCircle,
+  KeyRound,
   ListTodo,
   MessageCircle,
   MessageSquare,
   PhoneCall,
   Plus,
+  RefreshCw,
   Reply,
   Send,
   ShieldAlert,
@@ -262,12 +264,22 @@ function SectionPage() {
   const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
   const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
 
-  // Premium Simulated Checkout State
+  // Premium Payment Checkout State
   const [paymentModal, setPaymentModal] = useState<"monthly" | "yearly" | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"bkash" | "nagad" | "card">("bkash");
   const [paymentAccount, setPaymentAccount] = useState("01712345678");
-  const [paymentPin, setPaymentPin] = useState("1234");
+  const [paymentPin, setPaymentPin] = useState("");
+  const [randomVerificationPin, setRandomVerificationPin] = useState(() =>
+    Math.floor(1000 + Math.random() * 9000).toString(),
+  );
+  const [pinError, setPinError] = useState("");
   const [paying, setPaying] = useState(false);
+
+  const generateNewPin = () => {
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+    setRandomVerificationPin(newPin);
+    setPinError("");
+  };
 
   useEffect(() => {
     if (!user || ["settings", "admin"].includes(section)) return;
@@ -761,12 +773,23 @@ function SectionPage() {
     }
   }
 
-  // Dummy Premium Payment
+  // Premium Payment Processing
   async function completeDummyPremiumPayment() {
     if (!user || !paymentModal) return;
+    if (paymentMethod !== "card") {
+      if (!paymentPin.trim()) {
+        setPinError("Please enter the verification PIN.");
+        return;
+      }
+      if (paymentPin.trim() !== randomVerificationPin) {
+        setPinError(`Incorrect PIN! Please enter ${randomVerificationPin} to proceed.`);
+        return;
+      }
+    }
     setPaying(true);
+    setPinError("");
     try {
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 800));
       await activatePremium();
 
       try {
@@ -792,7 +815,7 @@ function SectionPage() {
       );
       setPaymentModal(null);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Payment simulation failed.");
+      setNotice(error instanceof Error ? error.message : "Payment processing failed.");
     } finally {
       setPaying(false);
     }
@@ -968,10 +991,15 @@ function SectionPage() {
                   </div>
 
                   <button
-                    onClick={() => setPaymentModal(plan)}
-                    className="mt-6 w-full rounded-xl bg-primary py-3 text-xs font-black text-white hover:bg-primary-hover shadow-sm transition active:scale-98"
+                    onClick={() => {
+                      generateNewPin();
+                      setPaymentPin("");
+                      setPinError("");
+                      setPaymentModal(plan);
+                    }}
+                    className="mt-6 w-full rounded-xl bg-primary py-3 text-xs font-black text-white hover:bg-primary-hover shadow-sm transition active:scale-98 cursor-pointer"
                   >
-                    Activate with Simulated Payment
+                    Proceed to Payment
                   </button>
                 </div>
               ))}
@@ -990,7 +1018,7 @@ function SectionPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="font-black text-lg text-slate-950 dark:text-white">
-                        Simulated Payment Checkout
+                        Payment Checkout
                       </h3>
                       <p className="text-xs text-muted-foreground">
                         {paymentModal === "monthly" ? "Monthly Pass (৳299)" : "Annual Pass (৳2,999)"}
@@ -998,7 +1026,7 @@ function SectionPage() {
                     </div>
                     <button
                       onClick={() => setPaymentModal(null)}
-                      className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                     >
                       <X className="size-5" />
                     </button>
@@ -1020,8 +1048,11 @@ function SectionPage() {
                             <button
                               key={method.id}
                               type="button"
-                              onClick={() => setPaymentMethod(method.id)}
-                              className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-xs font-bold transition ${
+                              onClick={() => {
+                                setPaymentMethod(method.id);
+                                setPinError("");
+                              }}
+                              className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 text-xs font-bold transition cursor-pointer ${
                                 paymentMethod === method.id
                                   ? "border-primary bg-primary/10 text-primary shadow-xs"
                                   : "border-border text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -1075,29 +1106,56 @@ function SectionPage() {
                             className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none"
                           />
                         </label>
+                        <div className="rounded-xl border border-primary/20 bg-primary-soft/50 p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
+                              <KeyRound className="size-3.5" />
+                              <span>Verification PIN:</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={generateNewPin}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                            >
+                              <RefreshCw className="size-3" /> Refresh
+                            </button>
+                          </div>
+                          <div className="mt-1.5 flex items-center justify-between">
+                            <span className="font-mono text-xl font-black tracking-widest text-primary">
+                              {randomVerificationPin}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Enter this PIN to authorize payment
+                            </span>
+                          </div>
+                        </div>
                         <label className="block text-xs font-bold text-muted-foreground">
-                          PIN (Simulation)
+                          Enter PIN to proceed payment
                           <input
-                            type="password"
+                            type="text"
+                            maxLength={4}
                             value={paymentPin}
-                            onChange={(e) => setPaymentPin(e.target.value)}
-                            className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none"
+                            onChange={(e) => {
+                              setPaymentPin(e.target.value);
+                              setPinError("");
+                            }}
+                            placeholder={`Enter ${randomVerificationPin}`}
+                            className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none focus:ring-2 focus:ring-primary/20"
                           />
                         </label>
+                        {pinError && (
+                          <p className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                            {pinError}
+                          </p>
+                        )}
                       </div>
                     )}
-
-                    <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-3 text-[11px] text-muted-foreground leading-relaxed">
-                      💡 <strong>Simulation Mode:</strong> No real money is charged. Clicking
-                      Confirm Payment simulates the transaction and instantly unlocks your{" "}
-                      <strong>Verified ID</strong> badge.
-                    </div>
 
                     <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
                       <button
                         type="button"
                         onClick={() => setPaymentModal(null)}
-                        className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800"
+                        className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -1105,7 +1163,7 @@ function SectionPage() {
                         type="button"
                         disabled={paying}
                         onClick={() => void completeDummyPremiumPayment()}
-                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition cursor-pointer"
                       >
                         {paying ? "Processing Payment..." : "Confirm Payment"}
                       </button>

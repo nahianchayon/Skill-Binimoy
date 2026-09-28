@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth";
-import type { SkillExchange } from "@/lib/exchange";
+import type { ExchangeTask, SkillExchange } from "@/lib/exchange";
 import { ExchangeWorkspaceCard } from "./ExchangeWorkspaceCard";
 
 export function ExchangeWorkspacesView() {
@@ -27,15 +27,35 @@ export function ExchangeWorkspacesView() {
       return;
     }
 
+    let exchangesList: SkillExchange[] = [];
+    let convExchangesList: SkillExchange[] = [];
+
+    const mergeAll = () => {
+      const mergedMap = new Map<string, SkillExchange>();
+      exchangesList.forEach((e) => mergedMap.set(e.id, e));
+      convExchangesList.forEach((c) => {
+        if (!mergedMap.has(c.id)) {
+          mergedMap.set(c.id, c);
+        } else {
+          const existing = mergedMap.get(c.id)!;
+          if (c.progress > existing.progress || c.completedTasks > existing.completedTasks || !existing.conversationId) {
+            mergedMap.set(c.id, { ...existing, ...c, conversationId: c.conversationId || existing.conversationId });
+          }
+        }
+      });
+      setExchanges(Array.from(mergedMap.values()));
+      setLoading(false);
+    };
+
     const q = query(
       collection(db, "exchanges"),
       where("participantIds", "array-contains", user.uid),
     );
 
-    const unsubscribe = onSnapshot(
+    const unsubscribeExchanges = onSnapshot(
       q,
       (snapshot) => {
-        const list: SkillExchange[] = snapshot.docs.map((docSnap) => {
+        exchangesList = snapshot.docs.map((docSnap) => {
           const d = docSnap.data();
           return {
             id: docSnap.id,
@@ -54,18 +74,80 @@ export function ExchangeWorkspacesView() {
             updatedAt: d["updatedAt"],
           };
         });
-
-        setExchanges(list);
-        setLoading(false);
+        mergeAll();
       },
       (error) => {
-        console.warn("Error fetching exchanges:", error);
+        console.warn("Notice: Error fetching exchanges:", error);
         setLoading(false);
       },
     );
 
-    return () => unsubscribe();
-  }, [user]);
+    const qConv = query(
+      collection(db, "conversations"),
+      where("participantIds", "array-contains", user.uid),
+    );
+
+    const unsubscribeConv = onSnapshot(
+      qConv,
+      (snapshot) => {
+        convExchangesList = snapshot.docs
+          .filter((d) => {
+            const data = d.data();
+            return (
+              Array.isArray(data["exchangeTasks"]) ||
+              typeof data["exchangeProgress"] === "number" ||
+              Boolean(data["exchangeId"])
+            );
+          })
+          .map((docSnap) => {
+            const d = docSnap.data();
+            const pIds = (d["participantIds"] as string[]) || [];
+            const partnerId = pIds.find((id) => id !== user.uid) || "";
+            const parts = (d["participants"] as Record<string, { displayName?: string; photoURL?: string }>) || {};
+            const partnerName = parts[partnerId]?.displayName || "Skill Partner";
+            const myName = parts[user.uid]?.displayName || profile?.displayName || "You";
+            const convTasks = (d["exchangeTasks"] as ExchangeTask[]) || [];
+            const completed =
+              typeof d["exchangeTasksCompleted"] === "number"
+                ? (d["exchangeTasksCompleted"] as number)
+                : convTasks.filter((t) => t.completed || t.status === "COMPLETED").length;
+            const total =
+              typeof d["exchangeTasksTotal"] === "number"
+                ? (d["exchangeTasksTotal"] as number)
+                : convTasks.length || 3;
+            const prog =
+              typeof d["exchangeProgress"] === "number"
+                ? (d["exchangeProgress"] as number)
+                : total === 0
+                  ? 0
+                  : Math.round((completed / total) * 100);
+
+            return {
+              id: (d["exchangeId"] as string) || `exchange_${docSnap.id}`,
+              conversationId: docSnap.id,
+              participantIds: pIds,
+              participants: parts,
+              title: `Skill Exchange: ${myName} & ${partnerName}`,
+              status: (prog === 100 || d["sessionEnded"] === true ? "COMPLETED" : "ACTIVE") as "ACTIVE" | "COMPLETED",
+              progress: prog,
+              totalTasks: total,
+              completedTasks: completed,
+              createdAt: d["createdAt"],
+              updatedAt: d["updatedAt"],
+            };
+          });
+        mergeAll();
+      },
+      (err) => {
+        console.warn("Conversations listener notice:", err);
+      },
+    );
+
+    return () => {
+      unsubscribeExchanges();
+      unsubscribeConv();
+    };
+  }, [user, profile?.displayName]);
 
   const activeExchanges = exchanges.filter(
     (e) => e.status === "ACTIVE" && e.progress < 100,

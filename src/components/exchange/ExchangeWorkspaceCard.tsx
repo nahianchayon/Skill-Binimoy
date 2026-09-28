@@ -333,6 +333,11 @@ export function ExchangeWorkspaceCard({
           <div className="flex items-center gap-2 shrink-0">
             <Link
               to="/messages"
+              onClick={() => {
+                if (typeof window !== "undefined" && exchange.conversationId) {
+                  sessionStorage.setItem("skill_binimoy_active_conversation_id", exchange.conversationId);
+                }
+              }}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 transition shadow-2xs cursor-pointer"
             >
               <MessageCircle className="size-3.5 text-primary" />
@@ -340,11 +345,31 @@ export function ExchangeWorkspaceCard({
             </Link>
             <Link
               to="/messages"
+              onClick={() => {
+                if (typeof window !== "undefined" && exchange.conversationId) {
+                  sessionStorage.setItem("skill_binimoy_active_conversation_id", exchange.conversationId);
+                }
+              }}
               className="inline-flex items-center gap-1.5 rounded-xl bg-primary hover:bg-primary-hover px-3.5 py-2 text-xs font-bold text-white transition shadow-sm cursor-pointer"
             >
               <Video className="size-3.5" />
               <span>Video Call</span>
             </Link>
+            {progressPercent === 100 && (
+              <Link
+                to="/messages"
+                onClick={() => {
+                  if (typeof window !== "undefined" && exchange.conversationId) {
+                    sessionStorage.setItem("skill_binimoy_active_conversation_id", exchange.conversationId);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 text-xs font-black text-white transition shadow-sm cursor-pointer"
+                title="Complete session and leave review in chat workspace"
+              >
+                <CheckCircle2 className="size-3.5" />
+                <span>{exchange.status === "COMPLETED" ? "Completed" : "End Session"}</span>
+              </Link>
+            )}
           </div>
         </div>
 

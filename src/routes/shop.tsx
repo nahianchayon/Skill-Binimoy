@@ -7,8 +7,10 @@ import {
   Clock,
   CreditCard,
   Home,
+  KeyRound,
   Package,
   Plus,
+  RefreshCw,
   Search,
   ShoppingBag,
   Smartphone,
@@ -73,8 +75,26 @@ function ShopPage() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"COD" | "BKASH" | "NAGAD" | "CARD">("BKASH");
   const [paymentPhone, setPaymentPhone] = useState("01712345678");
+  const [paymentPin, setPaymentPin] = useState("");
+  const [randomVerificationPin, setRandomVerificationPin] = useState(() =>
+    Math.floor(1000 + Math.random() * 9000).toString(),
+  );
+  const [pinError, setPinError] = useState("");
   const [deliveryAddress, setDeliveryAddress] = useState("Dhaka, Bangladesh");
   const [submittingOrder, setSubmittingOrder] = useState(false);
+
+  const generateNewPin = () => {
+    const newPin = Math.floor(1000 + Math.random() * 9000).toString();
+    setRandomVerificationPin(newPin);
+    setPinError("");
+  };
+
+  const openCheckout = () => {
+    generateNewPin();
+    setPaymentPin("");
+    setPinError("");
+    setCheckoutOpen(true);
+  };
 
   useEffect(() => watchRecords<Product>("products", [limit(50)], setProducts), []);
 
@@ -123,10 +143,23 @@ function ShopPage() {
   async function handleCheckoutSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!user || cart.length === 0) return;
+
+    if (paymentMethod === "BKASH" || paymentMethod === "NAGAD") {
+      if (!paymentPin.trim()) {
+        setPinError("Please enter the verification PIN.");
+        return;
+      }
+      if (paymentPin.trim() !== randomVerificationPin) {
+        setPinError(`Incorrect PIN! Please enter ${randomVerificationPin} to proceed.`);
+        return;
+      }
+    }
+
     setSubmittingOrder(true);
+    setPinError("");
     try {
       if (paymentMethod !== "COD") {
-        await new Promise((r) => setTimeout(r, 800)); // realistic simulated payment processing
+        await new Promise((r) => setTimeout(r, 800)); // processing
       }
       const newOrder = {
         userId: user.uid,
@@ -374,8 +407,8 @@ function ShopPage() {
                     </div>
 
                     <button
-                      onClick={() => setCheckoutOpen(true)}
-                      className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-95"
+                      onClick={openCheckout}
+                      className="mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-95 cursor-pointer"
                     >
                       <Check className="size-4" /> Proceed to Checkout
                     </button>
@@ -670,7 +703,7 @@ function ShopPage() {
                 )}
 
                 {(paymentMethod === "BKASH" || paymentMethod === "NAGAD") && (
-                  <div className="space-y-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900 p-3">
+                  <div className="space-y-3 rounded-2xl bg-slate-50 dark:bg-slate-900 p-3.5">
                     <label className="block text-xs font-bold text-muted-foreground">
                       {paymentMethod === "BKASH" ? "bKash" : "Nagad"} Account Number
                       <input
@@ -680,14 +713,51 @@ function ShopPage() {
                         className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none"
                       />
                     </label>
+
+                    <div className="rounded-xl border border-primary/20 bg-primary-soft/50 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
+                          <KeyRound className="size-3.5" />
+                          <span>Verification PIN:</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={generateNewPin}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                        >
+                          <RefreshCw className="size-3" /> Refresh
+                        </button>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-between">
+                        <span className="font-mono text-xl font-black tracking-widest text-primary">
+                          {randomVerificationPin}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          Enter this PIN to confirm payment
+                        </span>
+                      </div>
+                    </div>
+
                     <label className="block text-xs font-bold text-muted-foreground">
-                      PIN (Simulated)
+                      Enter PIN to proceed payment
                       <input
-                        type="password"
-                        defaultValue="1234"
-                        className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none"
+                        type="text"
+                        maxLength={4}
+                        value={paymentPin}
+                        onChange={(e) => {
+                          setPaymentPin(e.target.value);
+                          setPinError("");
+                        }}
+                        placeholder={`Enter ${randomVerificationPin}`}
+                        className="mt-1 w-full rounded-xl border border-input bg-background p-2.5 text-xs font-mono outline-none focus:ring-2 focus:ring-primary/20"
                       />
                     </label>
+
+                    {pinError && (
+                      <p className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                        {pinError}
+                      </p>
+                    )}
                   </div>
                 )}
 

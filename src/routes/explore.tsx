@@ -110,6 +110,7 @@ function ExplorePage() {
 
   const visiblePeople = people.filter((person) => {
     if (person.uid === user?.uid) return false;
+    if (person.role === "ADMIN") return false; // Admin manages the platform, not a peer barter user
     if (!search.trim()) return true;
     const term = search.toLowerCase();
     return (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
+  Award,
   BadgeCheck,
   BookOpen,
   Calendar,
@@ -12,6 +13,7 @@ import {
   MessageCircle,
   Send,
   Sparkles,
+  Star,
   User,
   X,
 } from "lucide-react";
@@ -54,11 +56,22 @@ type UserPost = {
   createdAt?: unknown;
 };
 
+type UserReview = {
+  id: string;
+  reviewerId?: string;
+  reviewerName?: string;
+  reviewerPhoto?: string | null;
+  rating: number;
+  feedback?: string;
+  createdAt?: unknown;
+};
+
 export function ProfileModal({ profile: initialProfile, onClose, onSendExchange }: ProfileModalProps) {
   const { user: currentUser } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(initialProfile);
   const [loading, setLoading] = useState(false);
   const [memberPosts, setMemberPosts] = useState<UserPost[]>([]);
+  const [reviews, setReviews] = useState<UserReview[]>([]);
 
   useEffect(() => {
     setProfile(initialProfile);
@@ -218,9 +231,31 @@ export function ProfileModal({ profile: initialProfile, onClose, onSendExchange 
       () => {},
     );
 
+    // 4. Query reviews/ratings received by this member
+    const stopReviews = watchRecords<UserReview>(
+      "reviews",
+      [where("recipientId", "==", targetUid)],
+      (list) => {
+        if (isMounted) {
+          const sorted = [...list].sort((a, b) => {
+            const timeA = typeof a.createdAt === "object" && a.createdAt !== null && "seconds" in a.createdAt
+              ? (a.createdAt as { seconds: number }).seconds * 1000
+              : new Date((a.createdAt as string) || 0).getTime();
+            const timeB = typeof b.createdAt === "object" && b.createdAt !== null && "seconds" in b.createdAt
+              ? (b.createdAt as { seconds: number }).seconds * 1000
+              : new Date((b.createdAt as string) || 0).getTime();
+            return timeB - timeA;
+          });
+          setReviews(sorted);
+        }
+      },
+      () => {},
+    );
+
     return () => {
       isMounted = false;
       stopPosts();
+      stopReviews();
     };
   }, [initialProfile?.uid, initialProfile?.id]);
 
@@ -252,6 +287,12 @@ export function ProfileModal({ profile: initialProfile, onClose, onSendExchange 
     (profile.uid && typeof window !== "undefined" && localStorage.getItem(`sb_premium_${profile.uid}`) === "true") ||
     (profile.id && typeof window !== "undefined" && localStorage.getItem(`sb_premium_${profile.id}`) === "true")
   );
+
+  const totalReviewCount = reviews.length > 0 ? reviews.length : (typeof profile.rating === "number" ? 1 : 0);
+  const effectiveRating =
+    reviews.length > 0
+      ? Math.round((reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length) * 10) / 10
+      : (typeof profile.rating === "number" ? profile.rating : 5.0);
 
   return (
     <div
@@ -356,6 +397,15 @@ export function ProfileModal({ profile: initialProfile, onClose, onSendExchange 
               {isVerified && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
                   <BadgeCheck className="size-3" /> Verified ID
+                </span>
+              )}
+              {effectiveRating > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                  <Star className="size-3 fill-amber-400 text-amber-400" />
+                  <span>{effectiveRating}</span>
+                  <span className="text-muted-foreground font-normal">
+                    ({totalReviewCount} {totalReviewCount === 1 ? "review" : "reviews"})
+                  </span>
                 </span>
               )}
             </div>
@@ -477,6 +527,74 @@ export function ProfileModal({ profile: initialProfile, onClose, onSendExchange 
               </div>
             </div>
           )}
+
+          {/* Member's Reviews & Ratings from Completed Sessions */}
+          <div className="mt-5 border-t border-border pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Star className="size-3.5 fill-amber-400 text-amber-400" />
+                Community Reviews & Ratings ({reviews.length})
+              </h3>
+              {reviews.length > 0 && (
+                <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                  ★ {effectiveRating} out of 5.0
+                </span>
+              )}
+            </div>
+
+            {reviews.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-4 text-center bg-slate-50/50 dark:bg-slate-900/30">
+                <p className="text-xs text-muted-foreground">
+                  No session reviews yet. Complete a learning exchange to receive peer reviews!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {reviews.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="rounded-xl border border-border p-3.5 bg-background/60 shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        {rev.reviewerPhoto ? (
+                          <img
+                            src={rev.reviewerPhoto}
+                            alt={rev.reviewerName || "Reviewer"}
+                            className="size-6 rounded-full object-cover ring-1 ring-primary/20"
+                          />
+                        ) : (
+                          <span className="grid size-6 place-items-center rounded-full bg-primary/10 text-[10px] font-black text-primary">
+                            {(rev.reviewerName || "M").slice(0, 1).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">
+                          {rev.reviewerName || "Learning Partner"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <Star
+                            key={s}
+                            className={`size-3 ${
+                              rev.rating >= s
+                                ? "fill-amber-400 text-amber-400"
+                                : "text-slate-300 dark:text-slate-600"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    {rev.feedback && (
+                      <p className="mt-2 text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">
+                        "{rev.feedback}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Hourly rate if tutor */}
           {profile.hourlyRate && (

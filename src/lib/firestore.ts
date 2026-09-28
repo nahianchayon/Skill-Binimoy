@@ -43,6 +43,7 @@ export const COLLECTIONS = {
   supportTickets: "supportTickets",
   announcements: "announcements",
   favorites: "favorites",
+  courses: "courses",
 } as const;
 
 export function requireDb() {

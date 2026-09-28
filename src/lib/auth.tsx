@@ -85,7 +85,7 @@ function createDemoProfile(user: DemoUser): UserProfile {
     photoURL: null,
     role: "USER",
     premium: isCachedPremium,
-    tutorVerified: isCachedPremium,
+    tutorVerified: false,
   };
 }
 
@@ -123,7 +123,6 @@ async function ensureProfile(user: User, displayName?: string) {
       }
       if (isCachedPremium && !existingData["premium"]) {
         updates["premium"] = true;
-        updates["tutorVerified"] = true;
       }
       // Only write to Firestore if something actually changed
       if (Object.keys(updates).length > 0) {
@@ -142,7 +141,7 @@ async function ensureProfile(user: User, displayName?: string) {
         photoURL: user.photoURL || null,
         role: "USER",
         premium: isCachedPremium,
-        tutorVerified: isCachedPremium,
+        tutorVerified: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
@@ -197,9 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             premium:
               typeof window !== "undefined" &&
               localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true",
-            tutorVerified:
-              typeof window !== "undefined" &&
-              localStorage.getItem(`sb_premium_${nextUser.uid}`) === "true",
+            tutorVerified: false,
           });
         }
         // Unblock the page immediately
@@ -220,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 const fresh: UserProfile = {
                   ...data,
                   premium: Boolean(data.premium || isCachedPremium),
-                  tutorVerified: Boolean(data.tutorVerified || data.premium || isCachedPremium),
+                  tutorVerified: Boolean(data.tutorVerified || data.role === "TUTOR"),
                 };
                 setProfile(fresh);
                 if (typeof window !== "undefined") {
@@ -359,7 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setProfile((prev) =>
           prev
-            ? { ...prev, premium: true, tutorVerified: true }
+            ? { ...prev, premium: true }
             : {
                 uid: user.uid,
                 email: user.email,
@@ -367,7 +364,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 photoURL: user.photoURL,
                 role: "USER",
                 premium: true,
-                tutorVerified: true,
+                tutorVerified: false,
               },
         );
         if (db) {
@@ -380,7 +377,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 displayName: user.displayName || profile?.displayName || "Member",
                 photoURL: user.photoURL || profile?.photoURL || null,
                 premium: true,
-                tutorVerified: true,
                 updatedAt: serverTimestamp(),
               },
               { merge: true },

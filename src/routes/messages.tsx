@@ -1,7 +1,10 @@
+
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  Award,
   Check,
   CheckCheck,
+  CheckCircle2,
   CheckSquare,
   ChevronDown,
   ChevronUp,
@@ -11,9 +14,11 @@ import {
   Plus,
   Send,
   Square,
+  Star,
   Trash2,
   User,
   Video,
+  X,
 } from "lucide-react";
 import {
   addDoc,
@@ -66,6 +71,9 @@ type Conversation = {
   exchangeTasksCompleted?: number | undefined;
   exchangeTasksTotal?: number | undefined;
   exchangeTasks?: ExchangeTask[] | undefined;
+  sessionEnded?: boolean | undefined;
+  status?: string | undefined;
+  reviewedBy?: string[] | undefined;
 };
 
 type Message = {
@@ -153,6 +161,13 @@ function MessagesPage() {
 
   // Partner Profile Modal State
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
+
+  // End Session & 1-to-5 Star Review Modal State
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewHoverRating, setReviewHoverRating] = useState(0);
+  const [reviewFeedback, setReviewFeedback] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   function selectConversation(conv: Conversation | null) {
     setSelected(conv);
@@ -566,6 +581,14 @@ function MessagesPage() {
         exchangeTasksTotal: nextTotalCount,
         updatedAt: serverTimestamp(),
       }).catch(console.warn);
+
+      void updateDoc(doc(db, "exchanges", exchangeIdToUse), {
+        progress: nextProgressVal,
+        completedTasks: nextCompletedCount,
+        totalTasks: nextTotalCount,
+        status: nextProgressVal === 100 ? "COMPLETED" : "ACTIVE",
+        updatedAt: serverTimestamp(),
+      }).catch(console.warn);
     }
 
     // 3. Persist to Firestore exchange subcollection
@@ -636,6 +659,14 @@ function MessagesPage() {
         exchangeId: targetExchangeId,
         updatedAt: serverTimestamp(),
       }).catch(console.warn);
+
+      void updateDoc(doc(db, "exchanges", targetExchangeId), {
+        progress: nextProgress,
+        completedTasks: nextCompleted,
+        totalTasks: nextTotal,
+        status: "ACTIVE",
+        updatedAt: serverTimestamp(),
+      }).catch(console.warn);
     }
 
     // 3. Persist to Firestore exchange subcollection & workspace
@@ -674,6 +705,14 @@ function MessagesPage() {
           exchangeTasksTotal: nextTotalCount,
           updatedAt: serverTimestamp(),
         }).catch(console.warn);
+
+        void updateDoc(doc(db, "exchanges", exchangeIdToUse), {
+          progress: nextProgressVal,
+          completedTasks: nextCompletedCount,
+          totalTasks: nextTotalCount,
+          status: nextProgressVal === 100 ? "COMPLETED" : "ACTIVE",
+          updatedAt: serverTimestamp(),
+        }).catch(console.warn);
       }
 
       try {
@@ -684,6 +723,86 @@ function MessagesPage() {
       } catch (err) {
         console.warn("Notice: Task deleted locally (Firestore sync deferred):", err);
       }
+    }
+  }
+
+  async function handleSubmitReview(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user || !selected || !selectedPartner || submittingReview) return;
+    setSubmittingReview(true);
+    try {
+      const recipientId = selectedPartner.partnerId;
+      const recipientName = selectedPartner.name;
+      const reviewerName = profile?.displayName || user.displayName || "Member";
+      const reviewerPhoto = profile?.photoURL || user.photoURL || null;
+      const exchangeId = canonicalExchangeId || selected.exchangeId || `exchange_${selected.id}`;
+
+      // 1. Create review document in 'reviews' collection
+      if (db) {
+        await addDoc(collection(db, "reviews"), {
+          conversationId: selected.id,
+          exchangeId,
+          reviewerId: user.uid,
+          reviewerName,
+          reviewerPhoto,
+          recipientId,
+          recipientName,
+          rating: reviewRating,
+          feedback: reviewFeedback.trim(),
+          createdAt: serverTimestamp(),
+        });
+
+        // 2. Update recipient user's profile with rating stats
+        const recipientRef = doc(db, "users", recipientId);
+        const recipientSnap = await getDoc(recipientRef);
+        if (recipientSnap.exists()) {
+          const uData = recipientSnap.data();
+          const currentReviewCount = typeof uData["reviewCount"] === "number" ? uData["reviewCount"] : 0;
+          const currentRatingSum =
+            typeof uData["ratingSum"] === "number"
+              ? uData["ratingSum"]
+              : (typeof uData["rating"] === "number" ? uData["rating"] * Math.max(1, currentReviewCount) : 0);
+          const nextCount = currentReviewCount + 1;
+          const nextSum = currentRatingSum + reviewRating;
+          const nextAverage = Math.round((nextSum / nextCount) * 10) / 10;
+          await updateDoc(recipientRef, {
+            reviewCount: nextCount,
+            ratingSum: nextSum,
+            rating: nextAverage,
+            updatedAt: serverTimestamp(),
+          }).catch(console.warn);
+        }
+
+        // 3. Update conversation document
+        await updateDoc(doc(db, "conversations", selected.id), {
+          sessionEnded: true,
+          status: "COMPLETED",
+          reviewedBy: arrayUnion(user.uid),
+          updatedAt: serverTimestamp(),
+        });
+
+        // 4. Update exchange document
+        await updateDoc(doc(db, "exchanges", exchangeId), {
+          status: "COMPLETED",
+          progress: 100,
+          updatedAt: serverTimestamp(),
+        }).catch(console.warn);
+
+        // 5. Send automated completion system message
+        await addDoc(collection(db, "conversations", selected.id, "messages"), {
+          senderId: "system",
+          text: `🎉 Skill exchange session marked as completed! ${reviewerName} gave a ${reviewRating}-star rating${reviewFeedback.trim() ? `: "${reviewFeedback.trim()}"` : "."}`,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      setReviewModalOpen(false);
+      setNotice(`Session ended successfully! Your ${reviewRating}-star review has been saved to ${recipientName}'s profile.`);
+    } catch (err) {
+      console.warn("Error completing session & review:", err);
+      setNotice(err instanceof Error ? err.message : "Failed to end session and save review.");
+    } finally {
+      setSubmittingReview(false);
     }
   }
 
@@ -991,6 +1110,20 @@ function MessagesPage() {
                           />
                         </div>
                       </div>
+
+                      {progressPercent === 100 && totalTasks > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setReviewModalOpen(true)}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2.5 sm:px-3 py-1.5 text-xs font-black shadow-xs transition cursor-pointer shrink-0"
+                          title="Complete session and leave review"
+                        >
+                          <CheckCircle2 className="size-3.5" />
+                          <span className="whitespace-nowrap">
+                            {selected?.sessionEnded ? "Reviewed" : "End Session"}
+                          </span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -1306,6 +1439,114 @@ function MessagesPage() {
           <p className="mt-4 rounded-xl bg-primary-soft px-4 py-3 text-sm font-semibold text-primary">
             {notice}
           </p>
+        )}
+
+        {/* End Session & 1-5 Star Review Modal */}
+        {reviewModalOpen && selectedPartner && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
+              <div className="flex items-center justify-between border-b border-border pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                    <Award className="size-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-base text-slate-950 dark:text-white">
+                      End Session & Review
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Rate your learning exchange with {selectedPartner.name}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReviewModalOpen(false)}
+                  className="rounded-xl p-1.5 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitReview} className="mt-5 space-y-4">
+                <div className="rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-4 border border-border/80 text-center">
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                    Select Your Rating
+                  </p>
+                  <div className="flex items-center justify-center gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const isFilled = (reviewHoverRating || reviewRating) >= star;
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onMouseEnter={() => setReviewHoverRating(star)}
+                          onMouseLeave={() => setReviewHoverRating(0)}
+                          onClick={() => setReviewRating(star)}
+                          className="p-1 transition-transform hover:scale-110 cursor-pointer focus:outline-none"
+                          title={`${star} Star${star > 1 ? "s" : ""}`}
+                        >
+                          <Star
+                            className={`size-8 transition-colors ${
+                              isFilled
+                                ? "fill-amber-400 text-amber-400"
+                                : "text-slate-300 dark:text-slate-600"
+                            }`}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs font-extrabold text-amber-500">
+                    {reviewRating === 5
+                      ? "⭐⭐⭐⭐⭐ Exceptional!"
+                      : reviewRating === 4
+                        ? "⭐⭐⭐⭐ Very Good!"
+                        : reviewRating === 3
+                          ? "⭐⭐⭐ Good Experience"
+                          : reviewRating === 2
+                            ? "⭐⭐ Fair"
+                            : "⭐ Needs Improvement"}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                    Feedback & Comments (Saved to {selectedPartner.name}'s Profile)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={reviewFeedback}
+                    onChange={(e) => setReviewFeedback(e.target.value)}
+                    placeholder="Describe how the exchange went, what you learned, and how helpful your partner was..."
+                    className="w-full rounded-xl border border-input bg-background p-3 text-xs outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+
+                <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 p-3 text-[11px] text-emerald-800 dark:text-emerald-300 leading-relaxed">
+                  ✓ This review will update {selectedPartner.name}'s overall rating and display on their public profile for the Skill Binimoy community.
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => setReviewModalOpen(false)}
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingReview}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-5 py-2 text-xs font-bold text-white shadow-sm transition disabled:opacity-50 cursor-pointer"
+                  >
+                    <CheckCircle2 className="size-4" />
+                    {submittingReview ? "Submitting..." : "Complete & Submit Review"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
 
         {/* Full Partner Profile Preview Modal */}
