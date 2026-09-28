@@ -41,6 +41,8 @@ export type SkillExchange = {
   totalTasks: number;
   completedTasks: number;
   tasks?: ExchangeTask[] | undefined;
+  sessionEnded?: boolean | undefined;
+  reviewedBy?: string[] | undefined;
   createdAt?: unknown;
   updatedAt?: unknown;
 };

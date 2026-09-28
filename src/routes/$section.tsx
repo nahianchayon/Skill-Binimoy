@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   Smartphone,
   Sparkles,
+  Star,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -1907,6 +1908,27 @@ function SectionPage() {
                             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-2 text-xs font-bold text-primary hover:bg-primary hover:text-white transition"
                           >
                             <ListTodo className="size-3.5" /> View Workspace & Tasks
+                          </Link>
+                        </div>
+                      )}
+
+                      {/* EXCHANGE REVIEW REQUEST NOTIFICATION */}
+                      {row.type === "EXCHANGE_REVIEW_REQUEST" && (
+                        <div className="mt-4 flex flex-wrap items-center gap-2.5">
+                          <Link
+                            to="/messages"
+                            onClick={() => {
+                              if (typeof window !== "undefined") {
+                                if (row.conversationId) {
+                                  sessionStorage.setItem("skill_binimoy_active_conversation_id", row.conversationId);
+                                }
+                                sessionStorage.setItem("skill_binimoy_open_review_modal", "true");
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 px-4 py-2 text-xs font-black text-slate-950 transition shadow-sm cursor-pointer"
+                          >
+                            <Star className="size-3.5 fill-current" />
+                            <span>⭐ Rate & Review Partner</span>
                           </Link>
                         </div>
                       )}

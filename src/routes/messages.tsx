@@ -260,6 +260,17 @@ function MessagesPage() {
     );
   }, [selectedId]);
 
+  // Auto-open review modal if redirected from My Exchanges or Notifications
+  useEffect(() => {
+    if (selected && typeof window !== "undefined") {
+      const shouldOpenReview = sessionStorage.getItem("skill_binimoy_open_review_modal");
+      if (shouldOpenReview === "true") {
+        sessionStorage.removeItem("skill_binimoy_open_review_modal");
+        setReviewModalOpen(true);
+      }
+    }
+  }, [selected?.id]);
+
   // Mark incoming messages as read when viewing this conversation
   useEffect(() => {
     if (!selectedId || !user || !db || messages.length === 0) return;
@@ -541,6 +552,12 @@ function MessagesPage() {
       ? (selected?.exchangeProgress ?? activeExchange?.progress ?? 0)
       : Math.round((completedTasks / totalTasks) * 100);
 
+  const hasUserReviewed = Boolean(user && selected?.reviewedBy?.includes(user.uid));
+  const hasPartnerReviewed = Boolean(selectedPartner && selected?.reviewedBy?.includes(selectedPartner.partnerId));
+  const isSessionEnded = Boolean(selected?.sessionEnded || selected?.status === "COMPLETED");
+  const isProgressComplete = progressPercent === 100 && totalTasks > 0;
+  const isSessionComplete = isSessionEnded || isProgressComplete;
+
   const filteredTasks = activeTasks.filter((t) => {
     if (todoFilter === "PENDING") return !t.completed && t.status !== "COMPLETED";
     if (todoFilter === "COMPLETED") return t.completed || t.status === "COMPLETED";
@@ -785,16 +802,44 @@ function MessagesPage() {
         await updateDoc(doc(db, "exchanges", exchangeId), {
           status: "COMPLETED",
           progress: 100,
+          sessionEnded: true,
+          reviewedBy: arrayUnion(user.uid),
           updatedAt: serverTimestamp(),
         }).catch(console.warn);
 
         // 5. Send automated completion system message
         await addDoc(collection(db, "conversations", selected.id, "messages"), {
           senderId: "system",
-          text: `🎉 Skill exchange session marked as completed! ${reviewerName} gave a ${reviewRating}-star rating${reviewFeedback.trim() ? `: "${reviewFeedback.trim()}"` : "."}`,
+          text: `🎉 Skill exchange session marked as completed! ${reviewerName} gave a ${reviewRating}-star rating${reviewFeedback.trim() ? `: "${reviewFeedback.trim()}"` : "."} Both partners can submit their reviews.`,
           createdAt: serverTimestamp(),
         });
+
+        // 6. Notify partner to submit their review as well
+        if (recipientId) {
+          await addDoc(collection(db, "notifications"), {
+            recipientId,
+            type: "EXCHANGE_REVIEW_REQUEST",
+            title: "Session Completed · Rate Your Partner",
+            message: `${reviewerName} completed the exchange session and left you a ${reviewRating}-star review! Click to rate and review your exchange with ${reviewerName}.`,
+            conversationId: selected.id,
+            exchangeId,
+            reviewerId: user.uid,
+            status: "UNREAD",
+            createdAt: serverTimestamp(),
+          }).catch(console.warn);
+        }
       }
+
+      setSelected((prev) =>
+        prev
+          ? {
+              ...prev,
+              sessionEnded: true,
+              status: "COMPLETED",
+              reviewedBy: Array.from(new Set([...(prev.reviewedBy || []), user.uid])),
+            }
+          : null,
+      );
 
       setReviewModalOpen(false);
       setNotice(`Session ended successfully! Your ${reviewRating}-star review has been saved to ${recipientName}'s profile.`);
@@ -1111,18 +1156,30 @@ function MessagesPage() {
                         </div>
                       </div>
 
-                      {progressPercent === 100 && totalTasks > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setReviewModalOpen(true)}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white px-2.5 sm:px-3 py-1.5 text-xs font-black shadow-xs transition cursor-pointer shrink-0"
-                          title="Complete session and leave review"
-                        >
-                          <CheckCircle2 className="size-3.5" />
-                          <span className="whitespace-nowrap">
-                            {selected?.sessionEnded ? "Reviewed" : "End Session"}
-                          </span>
-                        </button>
+                      {isSessionComplete && (
+                        <>
+                          {!hasUserReviewed ? (
+                            <button
+                              type="button"
+                              onClick={() => setReviewModalOpen(true)}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 px-2.5 sm:px-3 py-1.5 text-xs font-black shadow-xs transition cursor-pointer shrink-0 animate-pulse"
+                              title={isSessionEnded ? "Partner ended session. Rate your partner!" : "End session and leave a review"}
+                            >
+                              <Star className="size-3.5 fill-current" />
+                              <span className="whitespace-nowrap">
+                                {isSessionEnded ? "Rate Partner" : "End Session"}
+                              </span>
+                            </button>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 text-xs font-black shrink-0 whitespace-nowrap"
+                              title={hasPartnerReviewed ? "Both partners have submitted their reviews" : "Waiting for partner to submit their review"}
+                            >
+                              <CheckCircle2 className="size-3.5" />
+                              <span>{hasPartnerReviewed ? "Mutual Reviews Complete" : "You Reviewed"}</span>
+                            </span>
+                          )}
+                        </>
                       )}
 
                       <button
@@ -1307,6 +1364,33 @@ function MessagesPage() {
                   )}
                 </div>
 
+                {/* Banner when session is completed and user hasn't reviewed yet */}
+                {isSessionEnded && !hasUserReviewed && (
+                  <div className="mx-4 mt-3 rounded-2xl border border-amber-300 dark:border-amber-700/60 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/40 dark:to-orange-950/30 p-3.5 flex items-center justify-between gap-3 shadow-xs shrink-0 animate-in fade-in">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-slate-950 font-black shadow-xs">
+                        <Star className="size-5 fill-current" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-black text-slate-900 dark:text-white">
+                          Exchange Session Completed! Leave your review for {selectedPartner.name}
+                        </p>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 truncate">
+                          Your partner has marked the session completed. Please share your rating to finalize the exchange.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReviewModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3.5 py-2 text-xs shadow-xs transition cursor-pointer shrink-0 active:scale-95"
+                    >
+                      <Star className="size-3.5 fill-current" />
+                      <span>Rate & Review</span>
+                    </button>
+                  </div>
+                )}
+
                 <div ref={chatMessagesRef} className="chat-messages flex-1 overflow-y-auto p-4 space-y-3">
                   {messages.length === 0 ? (
                     <p className="m-auto text-sm text-slate-500 text-center py-20">
@@ -1447,12 +1531,12 @@ function MessagesPage() {
             <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl text-card-foreground">
               <div className="flex items-center justify-between border-b border-border pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                    <Award className="size-6" />
+                  <div className="flex size-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <Star className="size-6 fill-current" />
                   </div>
                   <div>
                     <h3 className="font-black text-base text-slate-950 dark:text-white">
-                      End Session & Review
+                      {selected?.sessionEnded ? "Rate & Review Partner" : "End Session & Review"}
                     </h3>
                     <p className="text-xs text-muted-foreground">
                       Rate your learning exchange with {selectedPartner.name}
@@ -1541,7 +1625,11 @@ function MessagesPage() {
                     className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-5 py-2 text-xs font-bold text-white shadow-sm transition disabled:opacity-50 cursor-pointer"
                   >
                     <CheckCircle2 className="size-4" />
-                    {submittingReview ? "Submitting..." : "Complete & Submit Review"}
+                    {submittingReview
+                      ? "Submitting..."
+                      : selected?.sessionEnded
+                        ? "Submit Review"
+                        : "End Session & Submit Review"}
                   </button>
                 </div>
               </form>

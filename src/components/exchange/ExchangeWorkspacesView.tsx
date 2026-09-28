@@ -38,8 +38,20 @@ export function ExchangeWorkspacesView() {
           mergedMap.set(c.id, c);
         } else {
           const existing = mergedMap.get(c.id)!;
-          if (c.progress > existing.progress || c.completedTasks > existing.completedTasks || !existing.conversationId) {
-            mergedMap.set(c.id, { ...existing, ...c, conversationId: c.conversationId || existing.conversationId });
+          if (
+            c.progress > existing.progress ||
+            c.completedTasks > existing.completedTasks ||
+            !existing.conversationId ||
+            c.sessionEnded ||
+            (c.reviewedBy && c.reviewedBy.length > (existing.reviewedBy?.length || 0))
+          ) {
+            mergedMap.set(c.id, {
+              ...existing,
+              ...c,
+              conversationId: c.conversationId || existing.conversationId,
+              sessionEnded: existing.sessionEnded || c.sessionEnded,
+              reviewedBy: Array.from(new Set([...(existing.reviewedBy || []), ...(c.reviewedBy || [])])),
+            });
           }
         }
       });
@@ -70,6 +82,8 @@ export function ExchangeWorkspacesView() {
             progress: typeof d["progress"] === "number" ? d["progress"] : 0,
             totalTasks: typeof d["totalTasks"] === "number" ? d["totalTasks"] : 0,
             completedTasks: typeof d["completedTasks"] === "number" ? d["completedTasks"] : 0,
+            sessionEnded: d["sessionEnded"] === true || d["status"] === "COMPLETED",
+            reviewedBy: (d["reviewedBy"] as string[]) || [],
             createdAt: d["createdAt"],
             updatedAt: d["updatedAt"],
           };
@@ -132,6 +146,8 @@ export function ExchangeWorkspacesView() {
               progress: prog,
               totalTasks: total,
               completedTasks: completed,
+              sessionEnded: d["sessionEnded"] === true || prog === 100,
+              reviewedBy: (d["reviewedBy"] as string[]) || [],
               createdAt: d["createdAt"],
               updatedAt: d["updatedAt"],
             };

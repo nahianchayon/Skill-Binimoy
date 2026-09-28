@@ -2,10 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowRight,
   BadgeCheck,
-  BookOpen,
   Check,
+  LayoutGrid,
   MapPin,
-  MessageSquare,
   Plus,
   Search,
   Send,
@@ -15,9 +14,10 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { limit, where } from "firebase/firestore";
+import { arrayUnion, doc, limit, serverTimestamp, updateDoc } from "firebase/firestore";
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 import { useAuth } from "@/lib/auth";
+import { db } from "@/lib/firebase";
 import { createRecord, deleteRecord, watchRecords } from "@/lib/firestore";
 import { sendExchangeRequest } from "@/lib/exchange";
 import { ProfileModal, type ProfileData } from "@/components/profile/ProfileModal";
@@ -63,12 +63,13 @@ function ExplorePage() {
   const { user, profile } = useAuth();
   const [people, setPeople] = useState<Person[]>([]);
   const [exchangePosts, setExchangePosts] = useState<ExchangePost[]>([]);
-  const [activeTab, setActiveTab] = useState<"members" | "offers">("members");
+  const [activeTab, setActiveTab] = useState<"all" | "offers" | "members">("all");
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState("");
 
-  // Modals
+  // Modals & Active Selections
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
+  const [selectedOffer, setSelectedOffer] = useState<ExchangePost | null>(null);
   const [requestMessage, setRequestMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [viewingProfile, setViewingProfile] = useState<ProfileData | null>(null);
@@ -134,6 +135,39 @@ function ExplorePage() {
     );
   });
 
+  function handleOpenOfferRequest(offer: ExchangePost, author?: Person) {
+    setSelectedOffer(offer);
+    if (author) {
+      setSelectedPerson(author);
+    } else {
+      setSelectedPerson({
+        id: offer.authorId || "member",
+        uid: offer.authorId,
+        displayName: offer.authorName || "Member",
+        photoURL: offer.authorPhoto,
+        skillsOffered: offer.teachSkills,
+        skillsWanted: offer.learnSkills,
+      });
+    }
+    const teachSummary = (offer.learnSkills || []).join(", ");
+    const learnSummary = (offer.teachSkills || []).join(", ");
+    setRequestMessage(
+      `Hi ${offer.authorName || author?.displayName || ""}, I saw your skill swap offer "${offer.title}". I would love to exchange skills with you!${
+        teachSummary && learnSummary
+          ? ` I can help teach ${teachSummary} in return for learning ${learnSummary}.`
+          : ""
+      }`,
+    );
+  }
+
+  function handleOpenPersonRequest(person: Person) {
+    setSelectedOffer(null);
+    setSelectedPerson(person);
+    setRequestMessage(
+      `Hello ${person.displayName || ""}, I saw your profile on Skill Binimoy and would love to exchange skills with you!`,
+    );
+  }
+
   async function handleSendRequest() {
     if (!user || !selectedPerson || !selectedPerson.uid) return;
     setSending(true);
@@ -150,11 +184,13 @@ function ExplorePage() {
         message:
           requestMessage.trim() ||
           `Hello ${selectedPerson.displayName || ""}, I would love to exchange skills with you on Skill Binimoy!`,
+        postId: selectedOffer?.id,
       });
       setNotice(
         `Exchange request successfully sent to ${selectedPerson.displayName || "this member"}. They can accept it in Notifications.`,
       );
       setSelectedPerson(null);
+      setSelectedOffer(null);
       setRequestMessage("");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not send request.");
@@ -168,18 +204,22 @@ function ExplorePage() {
     if (!user || !swapTitle.trim() || !swapTeach.trim() || !swapLearn.trim()) return;
     setBroadcasting(true);
     try {
+      const teachSkills = swapTeach
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const learnSkills = swapLearn
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      // 1. Post to exchange bulletin
       await createRecord("posts", {
         title: swapTitle.trim(),
         description: swapNote.trim() || "Looking for a mutual skill exchange partner.",
         postType: "EXCHANGE",
-        teachSkills: swapTeach
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-        learnSkills: swapLearn
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        teachSkills,
+        learnSkills,
         authorId: user.uid,
         authorName: profile?.displayName || user.displayName || "Member",
         authorPhoto: profile?.photoURL || user.photoURL || null,
@@ -189,18 +229,337 @@ function ExplorePage() {
         tutorVerified: Boolean(profile?.tutorVerified),
         createdAt: new Date().toISOString(),
       });
+
+      // 2. Synchronize user profile with these skills so they also appear in Partner Directory
+      if (db) {
+        const userRef = doc(db, "users", user.uid);
+        await updateDoc(userRef, {
+          skillsOffered: arrayUnion(...teachSkills),
+          skillsWanted: arrayUnion(...learnSkills),
+          updatedAt: serverTimestamp(),
+        }).catch(console.warn);
+      }
+
       setSwapTitle("");
       setSwapTeach("");
       setSwapLearn("");
       setSwapNote("");
       setBroadcastOpen(false);
-      setActiveTab("offers");
-      setNotice("Your Skill Swap Offer is live! Other members can now propose an exchange.");
+      setActiveTab("all");
+      setNotice("Your Skill Swap Offer is live and your profile skills have been synchronized! Other members can now propose an exchange.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not broadcast skill swap.");
     } finally {
       setBroadcasting(false);
     }
+  }
+
+  async function handleDeleteOffer(offer: ExchangePost) {
+    const isAdm = profile?.role === "ADMIN";
+    const confirmText = isAdm
+      ? `Admin: Permanently delete skill swap offer "${offer.title}"?`
+      : `Delete your skill swap offer "${offer.title}"?`;
+    if (window.confirm(confirmText)) {
+      try {
+        await deleteRecord("posts", offer.id);
+        setNotice("Skill swap offer removed.");
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Failed to remove offer");
+      }
+    }
+  }
+
+  // Render sub-components for Offer Card
+  function renderOfferCard(offer: ExchangePost) {
+    const author = people.find((p) => p.uid === offer.authorId);
+    const isOwnPost = offer.authorId === user?.uid;
+
+    return (
+      <article
+        key={offer.id}
+        className="rounded-3xl border border-border bg-card p-6 shadow-card hover:border-primary/40 transition flex flex-col justify-between"
+      >
+        <div>
+          <div className="flex items-start justify-between gap-3">
+            <div
+              onClick={() => {
+                const profileData: ProfileData = {
+                  uid: offer.authorId,
+                  id: offer.authorId,
+                  displayName: offer.authorName || author?.displayName || "Community Member",
+                  photoURL: offer.authorPhoto || author?.photoURL,
+                  skillsOffered:
+                    offer.teachSkills && offer.teachSkills.length > 0
+                      ? offer.teachSkills
+                      : author?.skillsOffered || [],
+                  skillsWanted:
+                    offer.learnSkills && offer.learnSkills.length > 0
+                      ? offer.learnSkills
+                      : author?.skillsWanted || [],
+                  bio: author?.bio || offer.description,
+                  role: author?.role || "MEMBER",
+                  education: author?.education,
+                  location: author?.location,
+                  availability: author?.availability,
+                  tutorVerified: author?.tutorVerified,
+                  premium: author?.premium,
+                };
+                setViewingProfile(profileData);
+              }}
+              className="flex items-center gap-2.5 cursor-pointer group"
+            >
+              {offer.authorPhoto ? (
+                <img
+                  src={offer.authorPhoto}
+                  alt={offer.authorName || "Author"}
+                  className="size-10 rounded-xl object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
+                />
+              ) : (
+                <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-xs font-black text-primary group-hover:bg-primary group-hover:text-white transition">
+                  {(offer.authorName || "M").slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-extrabold text-slate-950 dark:text-white group-hover:text-primary transition">
+                    {offer.authorName || "Community Member"}
+                  </p>
+                  {(author?.tutorVerified ||
+                    author?.premium ||
+                    (offer.authorId === user?.uid && (profile?.tutorVerified || profile?.premium))) && (
+                    <span title="Verified Member" className="text-primary shrink-0">
+                      <BadgeCheck className="size-4" />
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground font-medium">
+                  {offer.createdAt ? new Date(offer.createdAt).toLocaleDateString() : "Recent offer"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-black text-primary uppercase tracking-wide border border-primary/20">
+                Skill Swap Offer
+              </span>
+              {(profile?.role === "ADMIN" || isOwnPost) && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDeleteOffer(offer);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 transition cursor-pointer"
+                  title={profile?.role === "ADMIN" ? "Admin: Remove this post" : "Delete your post"}
+                >
+                  <Trash2 className="size-3.5" />
+                  <span>{profile?.role === "ADMIN" ? "Remove" : "Delete"}</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <h3 className="mt-3.5 text-lg font-black text-slate-950 dark:text-white leading-snug">
+            {offer.title}
+          </h3>
+
+          <p className="mt-2 text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-normal">
+            {offer.description}
+          </p>
+
+          <div className="mt-4 space-y-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-3.5 border border-slate-200 dark:border-slate-800 shadow-2xs text-xs">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
+                Will Teach:
+              </span>
+              {(offer.teachSkills || []).map((s, i) => (
+                <span
+                  key={i}
+                  className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-2.5">
+              <span className="text-xs font-black text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+                Looking For:
+              </span>
+              {(offer.learnSkills || []).map((s, i) => (
+                <span
+                  key={i}
+                  className="rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2.5 py-1 text-xs font-extrabold text-amber-800 dark:text-amber-300 shadow-2xs"
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-3 border-t border-border flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const profileData: ProfileData = {
+                uid: offer.authorId,
+                id: offer.authorId,
+                displayName: offer.authorName || author?.displayName || "Community Member",
+                photoURL: offer.authorPhoto || author?.photoURL,
+                skillsOffered:
+                  offer.teachSkills && offer.teachSkills.length > 0
+                    ? offer.teachSkills
+                    : author?.skillsOffered || [],
+                skillsWanted:
+                  offer.learnSkills && offer.learnSkills.length > 0
+                    ? offer.learnSkills
+                    : author?.skillsWanted || [],
+                bio: author?.bio || offer.description,
+                role: author?.role || "MEMBER",
+                education: author?.education,
+                location: author?.location,
+                availability: author?.availability,
+                tutorVerified: author?.tutorVerified,
+                premium: author?.premium,
+              };
+              setViewingProfile(profileData);
+            }}
+            className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:bg-primary-soft hover:text-primary transition shrink-0 cursor-pointer"
+          >
+            View Profile
+          </button>
+
+          {!isOwnPost ? (
+            <button
+              onClick={() => handleOpenOfferRequest(offer, author)}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover shadow-xs transition active:scale-98 cursor-pointer"
+            >
+              <Send className="size-3.5" /> Send Exchange Request
+            </button>
+          ) : (
+            <span className="flex-1 text-center text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 rounded-xl py-2">
+              ✓ Your Active Swap Post
+            </span>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  // Render sub-components for Partner Card
+  function renderPersonCard(person: Person) {
+    const offered = person.skillsOffered || [];
+    const wanted = person.skillsWanted || [];
+
+    return (
+      <article
+        className="flex flex-col justify-between rounded-3xl border border-border bg-card p-6 shadow-card hover:border-primary/40 hover:shadow-lift transition"
+        key={person.id}
+      >
+        <div>
+          {/* Member Info Row */}
+          <div
+            onClick={() => setViewingProfile(person)}
+            className="flex items-start gap-3.5 cursor-pointer group"
+          >
+            {person.photoURL ? (
+              <img
+                src={person.photoURL}
+                alt={person.displayName || "Member"}
+                className="size-13 rounded-2xl object-cover ring-2 ring-primary/20 shadow-xs group-hover:ring-primary transition"
+              />
+            ) : (
+              <span className="grid size-13 place-items-center rounded-2xl bg-primary/10 text-lg font-black text-primary ring-2 ring-primary/10 group-hover:bg-primary group-hover:text-white transition">
+                {(person.displayName || "M").slice(0, 1).toUpperCase()}
+              </span>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <h3 className="truncate text-base font-black text-slate-950 dark:text-white group-hover:text-primary transition">
+                  {person.displayName || "Skill Binimoy Member"}
+                </h3>
+                {(person.tutorVerified || person.premium) && (
+                  <span title="Verified Member" className="text-primary shrink-0">
+                    <BadgeCheck className="size-4" />
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <MapPin className="size-3 text-primary shrink-0" />
+                {person.location || "Bangladesh"}
+              </p>
+              <span className="text-xs font-extrabold text-primary hover:underline mt-0.5 inline-block">
+                View Full Profile →
+              </span>
+            </div>
+          </div>
+
+          {/* Bio */}
+          <p className="mt-4 text-xs leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-3">
+            {person.bio || "Passionate learner eager to exchange practical skills with others."}
+          </p>
+
+          {/* Skills Matrix */}
+          <div className="mt-5 space-y-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-3.5 border border-border">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                Can Teach / Offer:
+              </span>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {offered.length > 0 ? (
+                  offered.slice(0, 4).map((s) => (
+                    <span
+                      key={s}
+                      className="rounded-lg bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
+                    >
+                      {s}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">General Mentorship</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
+                Wants to Learn:
+              </span>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {wanted.length > 0 ? (
+                  wanted.slice(0, 4).map((s) => (
+                    <span
+                      key={s}
+                      className="rounded-lg bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
+                    >
+                      {s}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground">Open to all skills</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-4 border-t border-border flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            <span className="font-bold text-foreground">{person.reviewCount || 0}</span> exchanges ·{" "}
+            <span className="font-bold text-amber-500">★ {person.rating || "5.0"}</span>
+          </div>
+
+          <button
+            onClick={() => handleOpenPersonRequest(person)}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-95 cursor-pointer"
+          >
+            <Send className="size-3.5" /> Exchange
+          </button>
+        </div>
+      </article>
+    );
   }
 
   return (
@@ -223,7 +582,7 @@ function ExplorePage() {
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 onClick={() => setBroadcastOpen(true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-primary-hover active:scale-95 transition"
+                className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-primary-hover active:scale-95 transition cursor-pointer"
               >
                 <Plus className="size-4" /> Post a Skill Swap Offer
               </button>
@@ -234,34 +593,49 @@ function ExplorePage() {
 
         {/* View Switcher & Search Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setActiveTab("members")}
-              className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold transition ${
-                activeTab === "members"
+              onClick={() => setActiveTab("all")}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition cursor-pointer ${
+                activeTab === "all"
                   ? "bg-primary text-white shadow-sm"
                   : "border border-border bg-card text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Users className="size-4" />
-              <span>Exchange Partners</span>
+              <LayoutGrid className="size-4" />
+              <span>All Exchanges</span>
               <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-black">
-                {people.length}
+                {visibleOffers.length + visiblePeople.length}
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab("offers")}
-              className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-bold transition ${
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition cursor-pointer ${
                 activeTab === "offers"
                   ? "bg-primary text-white shadow-sm"
                   : "border border-border bg-card text-muted-foreground hover:text-foreground"
               }`}
             >
               <Sparkles className="size-4" />
-              <span>Skill Swap Broadcasts</span>
+              <span>Skill Swap Offers</span>
               <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-black">
-                {exchangePosts.length}
+                {visibleOffers.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("members")}
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition cursor-pointer ${
+                activeTab === "members"
+                  ? "bg-primary text-white shadow-sm"
+                  : "border border-border bg-card text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Users className="size-4" />
+              <span>Partner Directory</span>
+              <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-[10px] font-black">
+                {visiblePeople.length}
               </span>
             </button>
           </div>
@@ -281,363 +655,121 @@ function ExplorePage() {
         {notice && (
           <div className="flex items-center justify-between rounded-2xl bg-primary/10 border border-primary/20 p-4 text-xs font-semibold text-primary">
             <span>{notice}</span>
-            <button onClick={() => setNotice("")} className="text-primary hover:opacity-75">
+            <button onClick={() => setNotice("")} className="text-primary hover:opacity-75 cursor-pointer">
               <X className="size-4" />
             </button>
           </div>
         )}
 
-        {/* TAB 1: EXCHANGE MEMBERS DIRECTORY */}
-        {activeTab === "members" && (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {visiblePeople.length === 0 ? (
-              <div className="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
-                <Users className="mx-auto size-10 text-primary/40 mb-3" />
-                <h3 className="text-lg font-black text-slate-950 dark:text-white">No exchange partners found</h3>
+        {/* TAB 1: ALL EXCHANGES (MERGED UNIFIED VIEW) */}
+        {activeTab === "all" && (
+          <div className="space-y-10">
+            {visibleOffers.length === 0 && visiblePeople.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-border bg-card p-12 text-center">
+                <Sparkles className="mx-auto size-10 text-primary/40 mb-3" />
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">
+                  No exchanges or partners found
+                </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Try searching with another skill keyword or clear the search filter.
                 </p>
               </div>
             ) : (
-              visiblePeople.map((person) => {
-                const offered = person.skillsOffered || [];
-                const wanted = person.skillsWanted || [];
-
-                return (
-                  <article
-                    className="flex flex-col justify-between rounded-3xl border border-border bg-card p-6 shadow-card hover:border-primary/40 hover:shadow-lift transition"
-                    key={person.id}
-                  >
-                    <div>
-                      {/* Member Info Row (Clickable to View Profile) */}
-                      <div
-                        onClick={() => setViewingProfile(person)}
-                        className="flex items-start gap-3.5 cursor-pointer group"
-                      >
-                        {person.photoURL ? (
-                          <img
-                            src={person.photoURL}
-                            alt={person.displayName || "Member"}
-                            className="size-13 rounded-2xl object-cover ring-2 ring-primary/20 shadow-xs group-hover:ring-primary transition"
-                          />
-                        ) : (
-                          <span className="grid size-13 place-items-center rounded-2xl bg-primary/10 text-lg font-black text-primary ring-2 ring-primary/10 group-hover:bg-primary group-hover:text-white transition">
-                            {(person.displayName || "M").slice(0, 1).toUpperCase()}
-                          </span>
-                        )}
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <h3 className="truncate text-base font-black text-slate-950 dark:text-white group-hover:text-primary transition">
-                              {person.displayName || "Skill Binimoy Member"}
-                            </h3>
-                            {(person.tutorVerified || person.premium) && (
-                              <span title="Verified ID Member" className="text-primary shrink-0">
-                                <BadgeCheck className="size-4" />
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <MapPin className="size-3 text-primary shrink-0" />
-                            {person.location || "Bangladesh"}
-                          </p>
-                          <span className="text-xs font-extrabold text-primary hover:underline mt-0.5 inline-block">
-                            View Full Profile →
-                          </span>
-                        </div>
+              <>
+                {/* Active Swap Proposals Section */}
+                {visibleOffers.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-2">
+                          <Sparkles className="size-4.5 text-primary" /> Active Skill Swap Offers
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Direct barter agreements proposed by community members.
+                        </p>
                       </div>
-
-                      {/* Bio */}
-                      <p className="mt-4 text-xs leading-relaxed text-slate-600 dark:text-slate-300 line-clamp-3">
-                        {person.bio || "Passionate learner eager to exchange practical skills with others."}
-                      </p>
-
-                      {/* Skills Matrix */}
-                      <div className="mt-5 space-y-2.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-3.5 border border-border">
-                        <div>
-                          <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                            Can Teach / Offer:
-                          </span>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {offered.length > 0 ? (
-                              offered.slice(0, 4).map((s) => (
-                                <span
-                                  key={s}
-                                  className="rounded-lg bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60"
-                                >
-                                  {s}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground">General Mentorship</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div>
-                          <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-400">
-                            Wants to Learn:
-                          </span>
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            {wanted.length > 0 ? (
-                              wanted.slice(0, 4).map((s) => (
-                                <span
-                                  key={s}
-                                  className="rounded-lg bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 text-[11px] font-bold text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60"
-                                >
-                                  {s}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Open to all skills</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 pt-4 border-t border-border flex items-center justify-between gap-3">
-                      <div className="text-xs text-muted-foreground">
-                        <span className="font-bold text-foreground">
-                          {person.reviewCount || 0}
-                        </span>{" "}
-                        exchanges ·{" "}
-                        <span className="font-bold text-amber-500">★ {person.rating || "5.0"}</span>
-                      </div>
-
                       <button
-                        onClick={() => setSelectedPerson(person)}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:bg-primary-hover active:scale-95"
+                        onClick={() => setActiveTab("offers")}
+                        className="text-xs font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
                       >
-                        <Send className="size-3.5" /> Exchange
+                        View all offers ({visibleOffers.length}) <ArrowRight className="size-3.5" />
                       </button>
                     </div>
-                  </article>
-                );
-              })
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {visibleOffers.map(renderOfferCard)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Partner Directory Section */}
+                {visiblePeople.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-lg font-black text-slate-950 dark:text-white flex items-center gap-2">
+                          <Users className="size-4.5 text-emerald-600 dark:text-emerald-400" /> Exchange Partner Directory
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Verified members ready to swap skills based on mutual interests.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab("members")}
+                        className="text-xs font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        View all partners ({visiblePeople.length}) <ArrowRight className="size-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+                      {visiblePeople.map(renderPersonCard)}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {/* TAB 2: ACTIVE SKILL SWAP OFFERS */}
+        {/* TAB 2: SKILL SWAP OFFERS ONLY */}
         {activeTab === "offers" && (
           <div className="grid gap-4 md:grid-cols-2">
             {visibleOffers.length === 0 ? (
               <div className="md:col-span-2 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
                 <Sparkles className="mx-auto size-10 text-primary/40 mb-3" />
-                <h3 className="text-lg font-black text-slate-950 dark:text-white">No skill swap offers posted yet</h3>
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">
+                  No skill swap offers found
+                </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Be the first to post a skill barter request to the community!
                 </p>
                 <button
                   onClick={() => setBroadcastOpen(true)}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover"
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover cursor-pointer"
                 >
                   <Plus className="size-3.5" /> Post Skill Swap
                 </button>
               </div>
             ) : (
-              visibleOffers.map((offer) => {
-                const author = people.find((p) => p.uid === offer.authorId);
+              visibleOffers.map(renderOfferCard)
+            )}
+          </div>
+        )}
 
-                return (
-                  <article
-                    key={offer.id}
-                    className="rounded-3xl border border-border bg-card p-6 shadow-card hover:border-primary/40 transition flex flex-col justify-between"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-3">
-                        <div
-                          onClick={() => {
-                            const profileData: ProfileData = {
-                              uid: offer.authorId,
-                              id: offer.authorId,
-                              displayName: offer.authorName || author?.displayName || "Community Member",
-                              photoURL: offer.authorPhoto || author?.photoURL,
-                              skillsOffered: (offer.teachSkills && offer.teachSkills.length > 0)
-                                ? offer.teachSkills
-                                : author?.skillsOffered || [],
-                              skillsWanted: (offer.learnSkills && offer.learnSkills.length > 0)
-                                ? offer.learnSkills
-                                : author?.skillsWanted || [],
-                              bio: author?.bio || offer.description,
-                              role: author?.role || "MEMBER",
-                              education: author?.education,
-                              location: author?.location,
-                              availability: author?.availability,
-                              tutorVerified: author?.tutorVerified,
-                              premium: author?.premium,
-                            };
-                            setViewingProfile(profileData);
-                          }}
-                          className="flex items-center gap-2.5 cursor-pointer group"
-                        >
-                          {offer.authorPhoto ? (
-                            <img
-                              src={offer.authorPhoto}
-                              alt={offer.authorName || "Author"}
-                              className="size-10 rounded-xl object-cover ring-1 ring-primary/20 group-hover:ring-primary transition"
-                            />
-                          ) : (
-                            <span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-xs font-black text-primary group-hover:bg-primary group-hover:text-white transition">
-                              {(offer.authorName || "M").slice(0, 1).toUpperCase()}
-                            </span>
-                          )}
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-sm font-extrabold text-slate-950 dark:text-white group-hover:text-primary transition">
-                                {offer.authorName || "Community Member"}
-                              </p>
-                              {(author?.tutorVerified || author?.premium || (offer.authorId === user?.uid && (profile?.tutorVerified || profile?.premium))) && (
-                                <span title="Verified Member" className="text-primary shrink-0">
-                                  <BadgeCheck className="size-4" />
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground font-medium">
-                              {offer.createdAt
-                                ? new Date(offer.createdAt).toLocaleDateString()
-                                : "Recent offer"}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full bg-primary/10 px-3 py-1 text-[11px] font-black text-primary uppercase tracking-wide border border-primary/20">
-                            Skill Swap Offer
-                          </span>
-                          {(profile?.role === "ADMIN" || user?.uid === offer.authorId) && (
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                const isAdm = profile?.role === "ADMIN";
-                                const confirmText = isAdm
-                                  ? `Admin: Permanently delete skill swap offer "${offer.title}"?`
-                                  : `Delete your skill swap offer "${offer.title}"?`;
-                                if (window.confirm(confirmText)) {
-                                  try {
-                                    await deleteRecord("posts", offer.id);
-                                    setNotice("Skill swap offer removed.");
-                                  } catch (err) {
-                                    setNotice(err instanceof Error ? err.message : "Failed to remove offer");
-                                  }
-                                }
-                              }}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700 hover:bg-rose-600 hover:text-white dark:border-rose-900/50 dark:bg-rose-950/40 dark:text-rose-300 transition cursor-pointer"
-                              title={profile?.role === "ADMIN" ? "Admin: Remove this post" : "Delete your post"}
-                            >
-                              <Trash2 className="size-3.5" />
-                              <span>{profile?.role === "ADMIN" ? "Remove" : "Delete"}</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <h3 className="mt-3.5 text-lg font-black text-slate-950 dark:text-white leading-snug">
-                        {offer.title}
-                      </h3>
-
-                      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-normal">
-                        {offer.description}
-                      </p>
-
-                      <div className="mt-4 space-y-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-900/60 p-3.5 border border-slate-200 dark:border-slate-800 shadow-2xs text-xs">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-xs font-black text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">
-                            Will Teach:
-                          </span>
-                          {(offer.teachSkills || []).map((s, i) => (
-                            <span
-                              key={i}
-                              className="rounded-lg bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-300 dark:border-emerald-800 px-2.5 py-1 text-xs font-extrabold text-emerald-800 dark:text-emerald-300 shadow-2xs"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-200 dark:border-slate-800 pt-2.5">
-                          <span className="text-xs font-black text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                            Looking For:
-                          </span>
-                          {(offer.learnSkills || []).map((s, i) => (
-                            <span
-                              key={i}
-                              className="rounded-lg bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 px-2.5 py-1 text-xs font-extrabold text-amber-800 dark:text-amber-300 shadow-2xs"
-                            >
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 pt-3 border-t border-border flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const profileData: ProfileData = {
-                            uid: offer.authorId,
-                            id: offer.authorId,
-                            displayName: offer.authorName || author?.displayName || "Community Member",
-                            photoURL: offer.authorPhoto || author?.photoURL,
-                            skillsOffered: (offer.teachSkills && offer.teachSkills.length > 0)
-                              ? offer.teachSkills
-                              : author?.skillsOffered || [],
-                            skillsWanted: (offer.learnSkills && offer.learnSkills.length > 0)
-                              ? offer.learnSkills
-                              : author?.skillsWanted || [],
-                            bio: author?.bio || offer.description,
-                            role: author?.role || "MEMBER",
-                            education: author?.education,
-                            location: author?.location,
-                            availability: author?.availability,
-                            tutorVerified: author?.tutorVerified,
-                            premium: author?.premium,
-                          };
-                          setViewingProfile(profileData);
-                        }}
-                        className="rounded-xl border border-border bg-background px-3 py-2 text-xs font-bold text-foreground hover:bg-primary-soft hover:text-primary transition shrink-0"
-                      >
-                        View Profile
-                      </button>
-
-                      {offer.authorId !== user?.uid ? (
-                        <button
-                          onClick={() => {
-                            if (author) {
-                              setSelectedPerson(author);
-                              setRequestMessage(
-                                `Hi ${author.displayName || ""}, I saw your skill swap offer "${offer.title}". I would love to exchange skills with you!`,
-                              );
-                            } else {
-                              setSelectedPerson({
-                                id: offer.authorId || "member",
-                                uid: offer.authorId,
-                                displayName: offer.authorName || "Member",
-                                photoURL: offer.authorPhoto,
-                                skillsOffered: offer.teachSkills,
-                                skillsWanted: offer.learnSkills,
-                              });
-                              setRequestMessage(
-                                `Hi ${offer.authorName || ""}, I saw your skill swap offer "${offer.title}". I would love to exchange skills with you!`,
-                              );
-                            }
-                          }}
-                          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white hover:bg-primary-hover shadow-xs transition active:scale-98"
-                        >
-                          <Send className="size-3.5" /> Send Exchange Request
-                        </button>
-                      ) : (
-                        <span className="flex-1 text-center text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 rounded-xl py-2">
-                          ✓ Your Active Swap Post
-                        </span>
-                      )}
-                    </div>
-                  </article>
-                );
-              })
+        {/* TAB 3: EXCHANGE PARTNERS ONLY */}
+        {activeTab === "members" && (
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {visiblePeople.length === 0 ? (
+              <div className="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-border bg-card p-12 text-center">
+                <Users className="mx-auto size-10 text-primary/40 mb-3" />
+                <h3 className="text-lg font-black text-slate-950 dark:text-white">
+                  No exchange partners found
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Try searching with another skill keyword or clear the search filter.
+                </p>
+              </div>
+            ) : (
+              visiblePeople.map(renderPersonCard)
             )}
           </div>
         )}
@@ -669,23 +801,45 @@ function ExplorePage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedPerson(null)}
-                  className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setSelectedPerson(null);
+                    setSelectedOffer(null);
+                    setRequestMessage("");
+                  }}
+                  className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   <X className="size-5" />
                 </button>
               </div>
 
-              <div className="mt-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-3.5 border border-border text-xs space-y-1.5">
-                <p>
-                  <strong className="text-emerald-700 dark:text-emerald-300">They can teach:</strong>{" "}
-                  {(selectedPerson.skillsOffered || []).join(", ") || "Skills in their profile"}
-                </p>
-                <p>
-                  <strong className="text-amber-700 dark:text-amber-300">They want to learn:</strong>{" "}
-                  {(selectedPerson.skillsWanted || []).join(", ") || "Open to suggestions"}
-                </p>
-              </div>
+              {/* Offer Context Banner if responding to a specific swap proposition */}
+              {selectedOffer ? (
+                <div className="mt-4 rounded-2xl bg-primary/10 border border-primary/20 p-3.5 text-xs space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-primary mb-1">
+                    <Sparkles className="size-4" />
+                    <span>Swap Proposition: "{selectedOffer.title}"</span>
+                  </div>
+                  <p>
+                    <strong className="text-emerald-700 dark:text-emerald-400">You will learn:</strong>{" "}
+                    {(selectedOffer.teachSkills || []).join(", ") || "Skills in offer"}
+                  </p>
+                  <p>
+                    <strong className="text-amber-700 dark:text-amber-400">You will teach in return:</strong>{" "}
+                    {(selectedOffer.learnSkills || []).join(", ") || "Requested skills"}
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 p-3.5 border border-border text-xs space-y-1.5">
+                  <p>
+                    <strong className="text-emerald-700 dark:text-emerald-400">They can teach:</strong>{" "}
+                    {(selectedPerson.skillsOffered || []).join(", ") || "Skills in their profile"}
+                  </p>
+                  <p>
+                    <strong className="text-amber-700 dark:text-amber-400">They want to learn:</strong>{" "}
+                    {(selectedPerson.skillsWanted || []).join(", ") || "Open to suggestions"}
+                  </p>
+                </div>
+              )}
 
               <div className="mt-4">
                 <label className="block text-xs font-bold text-muted-foreground">
@@ -703,8 +857,12 @@ function ExplorePage() {
               <div className="mt-5 flex justify-end gap-2 border-t border-border pt-3">
                 <button
                   type="button"
-                  onClick={() => setSelectedPerson(null)}
-                  className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setSelectedPerson(null);
+                    setSelectedOffer(null);
+                    setRequestMessage("");
+                  }}
+                  className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -712,7 +870,7 @@ function ExplorePage() {
                   type="button"
                   disabled={sending}
                   onClick={() => void handleSendRequest()}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition cursor-pointer"
                 >
                   <Send className="size-3.5" />
                   {sending ? "Sending Proposal..." : "Send Proposal"}
@@ -735,7 +893,7 @@ function ExplorePage() {
                 </div>
                 <button
                   onClick={() => setBroadcastOpen(false)}
-                  className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="rounded-xl p-1 text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   <X className="size-5" />
                 </button>
@@ -799,14 +957,14 @@ function ExplorePage() {
                   <button
                     type="button"
                     onClick={() => setBroadcastOpen(false)}
-                    className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="rounded-xl border border-border px-4 py-2 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={broadcasting}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-5 py-2 text-xs font-bold text-white hover:bg-primary-hover disabled:opacity-50 transition cursor-pointer"
                   >
                     <Sparkles className="size-3.5" />
                     {broadcasting ? "Broadcasting..." : "Publish Skill Swap"}
@@ -824,7 +982,7 @@ function ExplorePage() {
             onClose={() => setViewingProfile(null)}
             onSendExchange={(p) => {
               setViewingProfile(null);
-              setSelectedPerson(p as Person);
+              handleOpenPersonRequest(p as Person);
             }}
           />
         )}

@@ -17,6 +17,7 @@ import {
   MessageCircle,
   Plus,
   Square,
+  Star,
   Trash2,
   Users,
   Video,
@@ -163,6 +164,12 @@ export function ExchangeWorkspaceCard({
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.completed || t.status === "COMPLETED").length;
   const progressPercent = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
+  const hasReviewed = Boolean(currentUserId && exchange.reviewedBy?.includes(currentUserId));
+  const isSessionComplete = Boolean(
+    exchange.status === "COMPLETED" ||
+    exchange.sessionEnded ||
+    (progressPercent === 100 && totalTasks > 0)
+  );
 
   const filteredTasks = tasks.filter((t) => {
     if (filter === "PENDING") return !t.completed && t.status !== "COMPLETED";
@@ -355,20 +362,35 @@ export function ExchangeWorkspaceCard({
               <Video className="size-3.5" />
               <span>Video Call</span>
             </Link>
-            {progressPercent === 100 && (
-              <Link
-                to="/messages"
-                onClick={() => {
-                  if (typeof window !== "undefined" && exchange.conversationId) {
-                    sessionStorage.setItem("skill_binimoy_active_conversation_id", exchange.conversationId);
-                  }
-                }}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2 text-xs font-black text-white transition shadow-sm cursor-pointer"
-                title="Complete session and leave review in chat workspace"
-              >
-                <CheckCircle2 className="size-3.5" />
-                <span>{exchange.status === "COMPLETED" ? "Completed" : "End Session"}</span>
-              </Link>
+            {isSessionComplete && (
+              <>
+                {!hasReviewed ? (
+                  <Link
+                    to="/messages"
+                    onClick={() => {
+                      if (typeof window !== "undefined") {
+                        if (exchange.conversationId) {
+                          sessionStorage.setItem("skill_binimoy_active_conversation_id", exchange.conversationId);
+                        }
+                        sessionStorage.setItem("skill_binimoy_open_review_modal", "true");
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 px-3.5 py-2 text-xs font-black text-slate-950 transition shadow-sm cursor-pointer animate-pulse"
+                    title="Leave a 1–5 star rating and review for your partner"
+                  >
+                    <Star className="size-3.5 fill-current" />
+                    <span>{exchange.sessionEnded || exchange.status === "COMPLETED" ? "Rate Partner" : "End Session"}</span>
+                  </Link>
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 px-3 py-1.5 text-xs font-black"
+                    title="You have submitted your review"
+                  >
+                    <CheckCircle2 className="size-3.5" />
+                    <span>✓ Reviewed</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
         </div>
